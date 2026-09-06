@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Spotify -> YT Music Sync</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="wrap">
+    <h1>Spotify → YT Music Sync</h1>
+
+    <section class="card">
+      <h2>1. Connect YouTube Music</h2>
+      <div class="connect-row">
+        <div>
+          <strong>YouTube Music</strong>
+          <span id="ytmusic-status" class="status">checking…</span>
+        </div>
+        <button id="ytmusic-connect-btn" class="btn">Connect YT Music</button>
+      </div>
+      <div id="ytmusic-error" class="import-status error hidden" style="margin-top: 0.75rem;"></div>
+      <div id="ytmusic-device-box" class="device-box hidden">
+        <p>1. Open this link: <a id="ytmusic-verify-url" target="_blank" rel="noopener"></a></p>
+        <p>2. Enter this code when prompted:</p>
+        <div class="code-row">
+          <div id="ytmusic-user-code" class="code"></div>
+          <button type="button" id="copy-code-btn" class="btn small" title="Copy code">📋 Copy</button>
+        </div>
+        <p id="ytmusic-poll-status" class="muted">Waiting for you to enter the code on Google…</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2. Import a Spotify playlist</h2>
+      <p class="muted">
+        Export your playlist as a CSV at
+        <a href="https://exportify.net" target="_blank" rel="noopener">exportify.net</a>
+        (runs in your browser, uses your own Spotify login — no developer
+        account or Premium needed), then drop it here.
+      </p>
+
+      <form id="import-form">
+        <div id="dropzone" class="dropzone">
+          <input type="file" id="playlist-csv" accept=".csv" class="dropzone-input" required>
+          <div id="dropzone-content" class="dropzone-content">
+            <svg class="dropzone-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <p class="dropzone-title">Drag & drop your Exportify <code>.csv</code> here, or <span class="dropzone-browse">browse</span></p>
+            <p class="dropzone-hint">Automatically sets playlist name from filename</p>
+          </div>
+          <div id="file-info" class="file-info hidden">
+            <span class="file-icon">📄</span>
+            <span id="file-name" class="file-name"></span>
+            <span id="file-size" class="file-size"></span>
+            <button type="button" id="remove-file-btn" class="remove-file-btn" title="Choose another file">×</button>
+          </div>
+        </div>
+
+        <div class="import-controls">
+          <input type="text" id="playlist-name" placeholder="Playlist name" required>
+          <button type="submit" id="import-submit-btn" class="btn">Import</button>
+        </div>
+      </form>
+      <p id="import-status" class="import-status muted"></p>
+    </section>
+
+    <section id="links-section" class="card">
+      <h2>3. Your imported playlists</h2>
+      <div id="links-list"></div>
+    </section>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
