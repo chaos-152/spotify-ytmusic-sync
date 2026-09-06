@@ -153,12 +153,13 @@ class YouTubeSyncClient:
     def search(self, query: str, filter: str = "songs", limit: int = 5) -> list:
         return self._ytm.search(query, filter=filter, limit=limit)
 
-    def add_playlist_items(self, playlist_id: str, video_ids: list[str], duplicates: bool = False):
+    def add_playlist_items(self, playlist_id: str, video_ids: list[str], duplicates: bool = False) -> int:
         url = "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet"
         headers = {
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json",
         }
+        added_count = 0
         for vid in video_ids:
             body = {
                 "snippet": {
@@ -170,9 +171,12 @@ class YouTubeSyncClient:
                 }
             }
             resp = requests.post(url, json=body, headers=headers)
-            if resp.status_code not in (200, 201, 409):
-                # We do not crash the sync if a single song fails (e.g. region-restricted)
-                pass
+            if resp.status_code in (200, 201):
+                added_count += 1
+            elif resp.status_code == 403 and "quotaExceeded" in resp.text:
+                # Stop immediately if daily quota ceiling is reached
+                break
+        return added_count
 
 
 def get_client(user_id: str = DEFAULT_USER_ID) -> YouTubeSyncClient:
@@ -272,8 +276,15 @@ def search_and_add(playlist_id: str, tracks: list[dict], user_id: str = DEFAULT_
         batch_size = 50
         for i in range(0, len(video_ids_to_add), batch_size):
             chunk = video_ids_to_add[i:i + batch_size]
-            yt.add_playlist_items(playlist_id, chunk, duplicates=False)
-        added = len(video_ids_to_add)
+            res = yt.add_playlist_items(playlist_id, chunk, duplicates=False)
+            actually_added = res if isinstance(res, int) else len(chunk)
+            added += actually_added
+            if actually_added < len(chunk):
+                # Daily quota ceiling reached; stop firing redundant calls
+                unprocessed = len(video_ids_to_add) - added
+                skipped += unprocessed
+                errors.append({"track": "*", "reason": f"YouTube Data API daily quota reached. {added} tracks saved; resuming tomorrow will skip existing tracks."})
+                break
 
     return {"added": added, "skipped": skipped, "errors": errors}
 
