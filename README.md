@@ -101,9 +101,13 @@ $$S_{\text{duration}} = \begin{cases}
 \end{cases}$$
 
 ### 4. Version Keyword Consistency ($P_{\text{version}}$)
-For each keyword $w \in \{\text{live, remix, acoustic, instrumental, cover, karaoke, orchestral, demo}\}$:
-* If $w \in \hat{T}_{\text{candidate}} \land w \notin \hat{T}_{\text{target}}$: **$-25.0\text{ pts}$ Penalty** (prevents live/remix substitution).
-* If $w \in \hat{T}_{\text{target}} \land w \in \hat{T}_{\text{candidate}}$: **$+5.0\text{ pts}$ Bonus** (rewards deliberate version matching).
+Evaluates version alignment across keywords: `live`, `remix`, `acoustic`, `instrumental`, `cover`, `karaoke`, `orchestral`, `demo`.
+
+| Condition | Score Adjustment | Rationale |
+| :--- | :--- | :--- |
+| **Studio Target vs. Alternate Candidate** | **−25.0 pts** | Prevents unwanted live, remix, or acoustic substitutions |
+| **Intentional Alternate Version Match** | **+5.0 pts** | Confirms matching target version (e.g. Live $\to$ Live) |
+| **Remastered Tag Discrepancy** | **−5.0 pts** | Soft penalty (remaster tags are often omitted on YouTube) |
 
 ### Interpretable Decision Threshold
 Candidates must achieve a composite score meeting the strict confidence barrier:
