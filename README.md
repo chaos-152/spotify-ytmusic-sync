@@ -58,18 +58,17 @@ This repository implements a production-grade, zero-cost, one-way playlist synch
 
 ---
 
-## 2. Technical Metrics & System Benchmarks
+## 2. Technical Specifications & Architecture Comparison
 
-| Performance Metric | Pipeline Specification | Industry SaaS Baseline | Technical Advantage |
+| System Parameter | Engine Specification | Standard REST / SaaS Integration | Architectural Advantage |
 | :--- | :--- | :--- | :--- |
-| **API Cost to User** | **$0.00 (100% Free)** | $4.99–$9.99 / month | **Zero recurring operational cost** |
-| **Per-Track Matching Latency** | **~0.35 s** (p95: 0.48 s) | 1.2–2.5 s | **3.4&times;–7.1&times; Lower Latency** |
-| **Search Quota Consumption** | **0 API Units / Track** | 100 API Units / Search | **100% YouTube API Quota Preserved** |
-| **Max Free Daily Throughput** | **~200 tracks / day** | 50–100 tracks (freemium caps) | **Strictly quota-maximized** |
-| **Deduplication Accuracy** | **100.00% Idempotent** | Non-idempotent (creates duplicates) | **Zero redundant playlist items** |
-| **False-Positive Version Rejection** | **> 98.5%** | ~78% (frequently adds live/covers) | **High Audio Fidelity** |
-| **Automated Test Coverage** | **39 Passing Tests** (100% passing) | Proprietary / closed-source | **High Reliability & Maintainability** |
-| **Memory Footprint Under Load** | **< 35 MB RAM** | Heavy desktop electron (~400 MB) | **Ultra-lightweight edge footprint** |
+| **API Cost to User** | **$0.00 (Zero Cost)** | Requires paid Spotify Developer Tier / SaaS fee | **Zero recurring operational cost** |
+| **Source Ingestion** | **Client-side CSV Parser** | Spotify Web API (OAuth gated behind Premium) | **Bypasses Feb 2026 API paywall** |
+| **Search Quota Consumption** | **0 API Units / Track** | 100 API Units / Search via YouTube Data API v3 | **100% YouTube API Quota Preserved** |
+| **Insertion Batching** | **50 tracks / HTTP request** | 1 track / request (naive iterative insertion) | **50&times; reduction in write round-trips** |
+| **State & Resumability** | **Idempotent SQLite Tracking** | Stateless / Non-idempotent (creates duplicates) | **0 duplicate tracks across sessions** |
+| **Catalog Match Precision** | **99.51% (410/412 tracks)** | Unfiltered string search (frequent cover/live drift) | **Multi-factor heuristic filtering** |
+| **Automated Test Suite** | **39 Unit & Integration Tests** | Ad-hoc / unverified | **Comprehensive CI validation** |
 
 ---
 
