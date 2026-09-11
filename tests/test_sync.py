@@ -74,11 +74,6 @@ def test_run_sync_cross_run_deduplication(monkeypatch):
     }
 
     mock_yt = MagicMock()
-    # Assume "vid_resonance" is ALREADY in the playlist
-    mock_yt.get_playlist.return_value = {
-        "tracks": [{"videoId": "vid_resonance", "title": "Resonance"}]
-    }
-
     mock_yt.search.side_effect = lambda query, filter, limit: [
         {
             "videoId": info["videoId"],
@@ -90,7 +85,13 @@ def test_run_sync_cross_run_deduplication(monkeypatch):
         if title.lower() in query.lower()
     ]
 
+    # "vid_resonance" / "resonance" already in playlist — mock at the function level
     monkeypatch.setattr(ytmusic_auth, "get_client", lambda user_id="me": mock_yt)
+    monkeypatch.setattr(
+        ytmusic_auth,
+        "get_playlist_existing_tracks",
+        lambda playlist_id, user_id="me": ({"vid_resonance"}, {"resonance"}),
+    )
 
     run_id = sync.run_sync(link_id)
 
@@ -118,15 +119,17 @@ def test_run_sync_idempotent_all_skipped(monkeypatch):
     db.replace_tracks(link_id, tracks)
 
     mock_yt = MagicMock()
-    # Track is already present
-    mock_yt.get_playlist.return_value = {
-        "tracks": [{"videoId": "vid_resonance", "title": "Resonance"}]
-    }
     mock_yt.search.return_value = [
         {"videoId": "vid_resonance", "title": "Resonance", "artists": [{"name": "HOME"}], "duration": "3:32"}
     ]
 
+    # Track already in playlist by both videoId and title
     monkeypatch.setattr(ytmusic_auth, "get_client", lambda user_id="me": mock_yt)
+    monkeypatch.setattr(
+        ytmusic_auth,
+        "get_playlist_existing_tracks",
+        lambda playlist_id, user_id="me": ({"vid_resonance"}, {"resonance"}),
+    )
 
     sync.run_sync(link_id)
 

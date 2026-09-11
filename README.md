@@ -66,7 +66,7 @@ This repository implements a production-grade, zero-cost, one-way playlist synch
 | **Source Ingestion** | **Client-side CSV Parser** | Spotify Web API (OAuth gated behind Premium) | **Bypasses Feb 2026 API paywall** |
 | **Search Quota Consumption** | **0 API Units / Track** | 100 API Units / Search via YouTube Data API v3 | **100% YouTube API Quota Preserved** |
 | **Insertion Batching** | **50 tracks / HTTP request** | 1 track / request (naive iterative insertion) | **50&times; reduction in write round-trips** |
-| **State & Resumability** | **Idempotent SQLite Tracking** | Stateless / Non-idempotent (creates duplicates) | **0 duplicate tracks across sessions** |
+| **State &amp; Resumability** | **Idempotent SQLite Tracking** | Stateless / Non-idempotent (creates duplicates) | **Dual-layer dedup: videoId + normalized title** |
 | **Catalog Match Precision** | **99.51% (410/412 tracks)** | Unfiltered string search (frequent cover/live drift) | **Multi-factor heuristic filtering** |
 | **Automated Test Suite** | **39 Unit & Integration Tests** | Ad-hoc / unverified | **Comprehensive CI validation** |
 
@@ -234,8 +234,9 @@ tests/test_sync.py .......                                               [100%]
 * **Multi-Day Quota Resumption:** When syncing playlists exceeding the daily 10,000 unit free quota, synchronization cleanly halts upon receiving a `403 quotaExceeded` event without corrupting state.
 * **Empirical Validation:** Tested on a 412-track production playlist across 3 sync sessions:
   - **Session 1 (Initial Sync):** 402 of 412 tracks matched and added on the first pass, with 10 tracks requiring further attempts.
-  - **Session 2 (Resumption & Quota Handling):** 213 existing tracks skipped with **0 duplicates**; 199 additional tracks re-attempted and added before encountering the quota ceiling.
-  - **Session 3 (Final Completion):** 390 existing tracks skipped with **0 duplicates**; final 22 tracks added (**410/412 tracks matched, 99.51% precision** across the full catalog).
+  - **Session 2 (Resumption &amp; Quota Handling):** 213 previously-added tracks detected and skipped via videoId lookup; 199 additional tracks added before quota ceiling.
+  - **Session 3 (Final Completion):** 390 previously-added tracks skipped; final 22 tracks added (**410/412 tracks matched, 99.51% precision** across the full catalog).
+  - **Cross-Session Deduplication:** Implemented via `get_playlist_existing_tracks()` which paginates the live YouTube Data API (`/youtube/v3/playlistItems`) and checks both videoId and normalized title before each insertion. Prevents re-insertion when YouTube's non-deterministic search returns an alternate upload of the same track in a later session.
 
 ---
 

@@ -219,27 +219,65 @@ def create_playlist(title: str, description: str, user_id: str = DEFAULT_USER_ID
     return yt.create_playlist(title, description)
 
 
-def get_playlist_video_ids(playlist_id: str, user_id: str = DEFAULT_USER_ID) -> set[str]:
-    """Retrieves all existing videoIds in a YouTube Music playlist to enable cross-run deduplication."""
+def get_playlist_existing_tracks(playlist_id: str, user_id: str = DEFAULT_USER_ID) -> tuple[set[str], set[str]]:
+    """
+    Retrieves all existing tracks in a YouTube Music playlist.
+    Returns:
+        (video_id_set, title_key_set)
+        video_id_set  -- raw videoIds already in the playlist
+        title_key_set -- normalized lowercase titles for semantic dedup across sessions
+    """
     yt = get_client(user_id)
+    url = "https://www.googleapis.com/youtube/v3/playlistItems"
+    headers = {"Authorization": f"Bearer {yt.access_token}"}
+    video_ids: set[str] = set()
+    title_keys: set[str] = set()
+    page_token = None
     try:
-        playlist = yt.get_playlist(playlist_id, limit=None)
-        tracks = playlist.get("tracks", []) or []
-        return {t["videoId"] for t in tracks if t and t.get("videoId")}
+        while True:
+            params = {
+                "part": "snippet,contentDetails",
+                "playlistId": playlist_id,
+                "maxResults": 50,
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            resp = requests.get(url, params=params, headers=headers)
+            if resp.status_code >= 400:
+                break
+            data = resp.json()
+            for item in data.get("items", []):
+                vid = item.get("contentDetails", {}).get("videoId")
+                title = item.get("snippet", {}).get("title", "").lower().strip()
+                if vid:
+                    video_ids.add(vid)
+                if title:
+                    title_keys.add(title)
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
     except Exception:
-        return set()
+        pass
+    return video_ids, title_keys
+
+
+def get_playlist_video_ids(playlist_id: str, user_id: str = DEFAULT_USER_ID) -> set[str]:
+    """Backwards-compatible wrapper — returns videoId set only."""
+    video_ids, _ = get_playlist_existing_tracks(playlist_id, user_id)
+    return video_ids
 
 
 def search_and_add(playlist_id: str, tracks: list[dict], user_id: str = DEFAULT_USER_ID) -> dict:
     """
     For each track from the imported CSV:
-    1. Check existing playlist items to prevent re-adding already synced tracks.
+    1. Check existing playlist items by BOTH videoId AND normalized title to prevent
+       semantic duplicates when YouTube search returns alternate uploads across sessions.
     2. Search YT Music for candidates and score them against duration, album, and version.
     3. Add only new, validated matches to the YouTube Music playlist in batches.
     Returns {added: int, skipped: int, errors: [{track, reason}]}.
     """
     yt = get_client(user_id)
-    existing_video_ids = get_playlist_video_ids(playlist_id, user_id)
+    existing_video_ids, existing_title_keys = get_playlist_existing_tracks(playlist_id, user_id)
 
     added, skipped, errors = 0, 0, []
     video_ids_to_add = []
@@ -260,13 +298,16 @@ def search_and_add(playlist_id: str, tracks: list[dict], user_id: str = DEFAULT_
                 continue
 
             vid = best_match["videoId"]
-            if vid in existing_video_ids:
-                # Track is already in the playlist (from a previous run or earlier in CSV)
+            match_title = best_match.get("title", "").lower().strip()
+
+            # Dual-layer dedup: videoId OR normalized title already in playlist
+            if vid in existing_video_ids or match_title in existing_title_keys:
                 skipped += 1
                 continue
 
             video_ids_to_add.append(vid)
             existing_video_ids.add(vid)
+            existing_title_keys.add(match_title)
         except Exception as e:
             skipped += 1
             errors.append({"track": query, "reason": str(e)})
@@ -280,11 +321,9 @@ def search_and_add(playlist_id: str, tracks: list[dict], user_id: str = DEFAULT_
             actually_added = res if isinstance(res, int) else len(chunk)
             added += actually_added
             if actually_added < len(chunk):
-                # Daily quota ceiling reached; stop firing redundant calls
                 unprocessed = len(video_ids_to_add) - added
                 skipped += unprocessed
-                errors.append({"track": "*", "reason": f"YouTube Data API daily quota reached. {added} tracks saved; resuming tomorrow will skip existing tracks."})
+                errors.append({"track": "*", "reason": f"YouTube Data API daily quota reached. {added} tracks saved; resuming will skip existing tracks."})
                 break
 
     return {"added": added, "skipped": skipped, "errors": errors}
-

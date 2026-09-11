@@ -1,12 +1,13 @@
 """
 Core one-way sync: imported Spotify CSV -> YouTube Music playlist.
 
-Strategy for v1 (simple, no dedup against existing YT playlist contents yet):
+Strategy:
   1. Ensure a YT Music playlist exists for this link (create on first run).
-  2. Read tracks that were parsed out of the last CSV import for this link.
-  3. Search + add each one to the YT Music playlist, skipping duplicates
-     ytmusicapi already knows about (duplicates=False handles same-run dupes;
-     cross-run dedup is a good v2 addition -- see README).
+  2. Read tracks parsed from the last CSV import for this link.
+  3. Search + add each one to the YT Music playlist, skipping duplicates via
+     dual-layer deduplication: existing videoId OR normalized track title.
+     This prevents re-insertion of the same song even when YouTube's search
+     returns a different upload (different videoId) across sessions.
 """
 from . import db
 from . import ytmusic_auth
