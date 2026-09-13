@@ -220,19 +220,35 @@ def create_playlist(title: str, description: str, user_id: str = DEFAULT_USER_ID
     return yt.create_playlist(title, description)
 
 
-def get_playlist_existing_tracks(playlist_id: str, user_id: str = DEFAULT_USER_ID) -> tuple[set[str], set[str]]:
+def _is_in_existing_keys(title: str, artist: str, existing_keys: set) -> bool:
+    t = title.lower().strip()
+    a = artist.lower().strip()
+    if (t, a) in existing_keys:
+        return True
+    if t in existing_keys and not any(isinstance(k, tuple) for k in existing_keys):
+        return True
+    for k in existing_keys:
+        if isinstance(k, tuple):
+            k_title, k_artist = k
+            if k_title == t:
+                if not k_artist or not a or k_artist in a or a in k_artist:
+                    return True
+    return False
+
+
+def get_playlist_existing_tracks(playlist_id: str, user_id: str = DEFAULT_USER_ID) -> tuple[set[str], set]:
     """
     Retrieves all existing tracks in a YouTube Music playlist.
     Returns:
         (video_id_set, title_key_set)
         video_id_set  -- raw videoIds already in the playlist
-        title_key_set -- normalized lowercase titles for semantic dedup across sessions
+        title_key_set -- normalized (title, artist) tuples for semantic dedup across sessions
     """
     yt = get_client(user_id)
     url = "https://www.googleapis.com/youtube/v3/playlistItems"
     headers = {"Authorization": f"Bearer {yt.access_token}"}
     video_ids: set[str] = set()
-    title_keys: set[str] = set()
+    title_keys: set = set()
     page_token = None
     try:
         while True:
@@ -249,11 +265,13 @@ def get_playlist_existing_tracks(playlist_id: str, user_id: str = DEFAULT_USER_I
             data = resp.json()
             for item in data.get("items", []):
                 vid = item.get("contentDetails", {}).get("videoId")
-                title = item.get("snippet", {}).get("title", "").lower().strip()
+                snippet = item.get("snippet", {})
+                title = snippet.get("title", "").lower().strip()
+                channel = (snippet.get("videoOwnerChannelTitle") or "").lower().replace(" - topic", "").strip()
                 if vid:
                     video_ids.add(vid)
                 if title:
-                    title_keys.add(title)
+                    title_keys.add((title, channel) if channel else (title, ""))
             page_token = data.get("nextPageToken")
             if not page_token:
                 break
@@ -332,15 +350,20 @@ def search_and_add(playlist_id: str, tracks: list[dict], user_id: str = DEFAULT_
 
             vid = best_match["videoId"]
             match_title = best_match.get("title", "").lower().strip()
+            match_artist = ""
+            if best_match.get("artists"):
+                match_artist = best_match["artists"][0].get("name", "").lower().strip()
+            elif t.get("artist"):
+                match_artist = t["artist"].split(";")[0].split(",")[0].lower().strip()
 
-            # Dual-layer dedup: videoId OR normalized title already in playlist
-            if vid in existing_video_ids or match_title in existing_title_keys:
+            # Dual-layer dedup: videoId OR normalized (title, artist) already in playlist
+            if vid in existing_video_ids or _is_in_existing_keys(match_title, match_artist, existing_title_keys):
                 skipped += 1
                 continue
 
             video_ids_to_add.append(vid)
             existing_video_ids.add(vid)
-            existing_title_keys.add(match_title)
+            existing_title_keys.add((match_title, match_artist))
         except Exception as e:
             skipped += 1
             errors.append({"track": query, "reason": str(e)})

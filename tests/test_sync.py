@@ -246,3 +246,45 @@ def test_run_sync_partial_failures_recorded(monkeypatch):
     assert "YT API rate limit error" in runs[0]["errors"]
     assert "no search results" in runs[0]["errors"]
 
+
+def test_run_sync_distinct_songs_same_title_not_deduped(monkeypatch):
+    """Verifies that two different songs sharing a common title by different artists are both added."""
+    link_id = db.upsert_link("me", "Same Title Playlist")
+    db.set_ytmusic_playlist_id(link_id, "yt_same_title_pl")
+    tracks = [
+        {"title": "Samayama", "artist": "Harini", "duration_ms": 200000},
+        {"title": "Samayama", "artist": "Anurag Kulkarni", "duration_ms": 210000},
+    ]
+    db.replace_tracks(link_id, tracks)
+
+    mock_yt = MagicMock()
+    mock_yt.get_playlist.return_value = {"tracks": []}
+
+    def mock_search(query, filter, limit):
+        if "Harini" in query:
+            return [{"videoId": "vid_samayama_1", "title": "Samayama", "artists": [{"name": "Harini"}], "duration": "3:20"}]
+        elif "Anurag" in query:
+            return [{"videoId": "vid_samayama_2", "title": "Samayama", "artists": [{"name": "Anurag Kulkarni"}], "duration": "3:30"}]
+        return []
+
+    mock_yt.search.side_effect = mock_search
+    monkeypatch.setattr(ytmusic_auth, "get_client", lambda user_id="me": mock_yt)
+    monkeypatch.setattr(
+        ytmusic_auth,
+        "get_playlist_existing_tracks",
+        lambda playlist_id, user_id="me": (set(), set()),
+    )
+
+    sync.run_sync(link_id)
+
+    mock_yt.add_playlist_items.assert_called_once()
+    added_ids = mock_yt.add_playlist_items.call_args[0][1]
+    assert len(added_ids) == 2
+    assert "vid_samayama_1" in added_ids
+    assert "vid_samayama_2" in added_ids
+
+    runs = db.get_runs_for_link(link_id)
+    assert runs[0]["added"] == 2
+    assert runs[0]["skipped"] == 0
+
+
