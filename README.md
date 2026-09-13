@@ -299,11 +299,6 @@ The 5 skipped tracks were verified as true catalog absences in YouTube Music's `
 4. `Sarkaru Raa` — Thaman S
 5. `Naalo Maimarapu` — Mickey J. Meyer; Mohana Bhogaraju
 
-### Large Catalog Validation: 412-Track Production Playlist
-Tested across a 412-track production playlist across multi-day quota resumption cycles:
-* **Session 1 (Initial Run):** 402 of 412 tracks matched and added on the first pass before quota exhaustion.
-* **Session 2 (Resumption & Quota Handling):** Previously added tracks detected and skipped via videoId and composite metadata; remaining tracks processed.
-* **Final Result:** 410/412 tracks successfully synced with 0 corruptions.
 
 ---
 
