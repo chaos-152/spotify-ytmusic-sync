@@ -11,6 +11,7 @@ with the YouTube Data API v3 enabled.
 Env vars needed: YTMUSIC_CLIENT_ID, YTMUSIC_CLIENT_SECRET
 """
 import os
+import re
 import time
 import requests
 from ytmusicapi.auth.oauth import OAuthCredentials
@@ -267,12 +268,27 @@ def get_playlist_video_ids(playlist_id: str, user_id: str = DEFAULT_USER_ID) -> 
     return video_ids
 
 
+def sanitize_search_query(title: str, artist: str) -> str:
+    """
+    Sanitizes track title and artist for YouTube Music search:
+    - Strips literal and escaped quotes (\", ", ') which force exact phrase syntax
+    - Strips stray backslashes and pipe characters
+    - Normalizes semicolons/commas in compound artists into spaces
+    - Normalizes multiple spaces and trims
+    """
+    cleaned_title = re.sub(r'[\"\'\\]', " ", title or "")
+    cleaned_artist = re.sub(r'[\"\'\\]', " ", artist or "")
+    cleaned_artist = re.sub(r"[;,]", " ", cleaned_artist)
+    query = f"{cleaned_title} {cleaned_artist}"
+    return " ".join(query.split())
+
+
 def search_and_add(playlist_id: str, tracks: list[dict], user_id: str = DEFAULT_USER_ID) -> dict:
     """
     For each track from the imported CSV:
     1. Check existing playlist items by BOTH videoId AND normalized title to prevent
        semantic duplicates when YouTube search returns alternate uploads across sessions.
-    2. Search YT Music for candidates and score them against duration, album, and version.
+    2. Search YT Music for candidates with query sanitization and fallback.
     3. Add only new, validated matches to the YouTube Music playlist in batches.
     Returns {added: int, skipped: int, errors: [{track, reason}]}.
     """
@@ -283,15 +299,32 @@ def search_and_add(playlist_id: str, tracks: list[dict], user_id: str = DEFAULT_
     video_ids_to_add = []
 
     for t in tracks:
-        query = f"{t['title']} {t['artist']}"
+        query = sanitize_search_query(t.get("title", ""), t.get("artist", ""))
         try:
             results = yt.search(query, filter="songs", limit=5)
+            if not results:
+                # Try fallback query
+                fallback_query = sanitize_search_query(t.get("artist", ""), t.get("title", ""))
+                if fallback_query != query:
+                    results = yt.search(fallback_query, filter="songs", limit=5)
+
             if not results:
                 skipped += 1
                 errors.append({"track": query, "reason": "no search results"})
                 continue
 
             best_match, score = matching.find_best_match(t, results)
+
+            # Fallback: try artist-first query if first pass fell below threshold
+            if not best_match:
+                fallback_query = sanitize_search_query(t.get("artist", ""), t.get("title", ""))
+                if fallback_query != query:
+                    fallback_results = yt.search(fallback_query, filter="songs", limit=5)
+                    if fallback_results:
+                        fb_match, fb_score = matching.find_best_match(t, fallback_results)
+                        if fb_match and fb_score > score:
+                            best_match, score = fb_match, fb_score
+
             if not best_match:
                 skipped += 1
                 errors.append({"track": query, "reason": f"no match met confidence threshold (best score: {score:.1f})"})

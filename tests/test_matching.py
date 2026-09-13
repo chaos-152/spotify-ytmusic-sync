@@ -225,3 +225,124 @@ def test_candidate_handles_missing_fields_gracefully():
     assert match is not None
     assert match["videoId"] == "hello_vid"
 
+
+def test_artist_gate_rejects_unrelated_artist_cover():
+    """Exact title match with 0 artist correlation must be rejected by the artist gate."""
+    target = {"title": "New Sensation", "artist": "INXS", "duration_ms": 219813}
+    cover_candidate = {
+        "videoId": "alterboy_vid",
+        "title": "New Sensation",
+        "artists": [{"name": "Alterboy"}],
+        "duration": "3:33",
+    }
+    score = matching.score_candidate(target, cover_candidate)
+    assert score == 0.0
+    match, best_score = matching.find_best_match(target, [cover_candidate])
+    assert match is None
+    assert best_score == 0.0
+
+
+def test_duration_cannot_override_title_mismatch():
+    """Identical duration and matching artist must not allow a totally different title to pass."""
+    target = {"title": "Anthem", "artist": "NJOI", "duration_ms": 198000}
+    different_song_candidate = {
+        "videoId": "acid_machine_vid",
+        "title": "Acid Machine",
+        "artists": [{"name": "Njoi"}],
+        "duration": "3:17",  # 197s (1s diff from 198s)
+    }
+    score = matching.score_candidate(target, different_song_candidate)
+    assert score == 0.0
+    match, best_score = matching.find_best_match(target, [different_song_candidate])
+    assert match is None
+
+
+def test_core_title_extraction_prevents_remaster_crossmatch():
+    """Shared '(Remastered)' boilerplate suffix must not inflate similarity between different songs."""
+    target = {"title": "Alright - Remastered", "artist": "Jamiroquai", "duration_ms": 263920}
+    wrong_song_same_suffix = {
+        "videoId": "high_times_vid",
+        "title": "High Times (Remastered 2006)",
+        "artists": [{"name": "Jamiroquai"}],
+        "duration": "4:11",
+    }
+    right_song_studio = {
+        "videoId": "alright_vid",
+        "title": "Alright",
+        "artists": [{"name": "Jamiroquai"}],
+        "duration": "4:24",  # 264s (exact match)
+    }
+    # Wrong song has 0 core title similarity ("alright" vs "high times")
+    assert matching.score_candidate(target, wrong_song_same_suffix) == 0.0
+
+    match, best_score = matching.find_best_match(target, [wrong_song_same_suffix, right_song_studio])
+    assert match is not None
+    assert match["videoId"] == "alright_vid"
+    assert best_score >= 80.0
+
+
+def test_karaoke_and_tribute_phrases_disqualified():
+    """Tracks with 'In the style of' or 'Karaoke' in title must be rejected when target is original."""
+    target = {"title": "New Sensation", "artist": "INXS", "duration_ms": 219813}
+    karaoke_candidate = {
+        "videoId": "karaoke_vid",
+        "title": "New Sensation [In the Style of Inxs] {Karaoke Version}",
+        "artists": [{"name": "The Karaoke Channel"}],
+        "duration": "3:41",
+    }
+    score = matching.score_candidate(target, karaoke_candidate)
+    assert score == 0.0
+
+
+def test_ugc_user_upload_matching_artist_in_title():
+    """User-uploaded video where artist is in the title (not channel metadata) must pass artist gate."""
+    target = {"title": "Bohemian Rhapsody", "artist": "Queen", "duration_ms": 354000}
+    ugc_candidate = {
+        "videoId": "ugc_vid",
+        "title": "Queen - Bohemian Rhapsody (Audio)",
+        "artists": [{"name": "ClassicRockFan99"}],
+        "duration": "5:54",
+    }
+    score = matching.score_candidate(target, ugc_candidate)
+    assert score >= 70.0
+    match, best_score = matching.find_best_match(target, [ugc_candidate])
+    assert match is not None
+    assert match["videoId"] == "ugc_vid"
+
+
+def test_single_word_overlap_insufficient_for_short_title():
+    """Matching 1 word out of 2 on a short title must be rejected, even if artist matches."""
+    target = {"title": "Sarkaru Raa", "artist": "Thaman S", "duration_ms": 158476}
+    candidate = {
+        "videoId": "wrong_vid",
+        "title": "Sarkaru Vaari Paata-Title Song",
+        "artists": [{"name": "Thaman S"}, {"name": "Harika Narayan"}],
+        "duration": "2:37",
+    }
+    score = matching.score_candidate(target, candidate)
+    assert score == 0.0
+    match, _ = matching.find_best_match(target, [candidate])
+    assert match is None
+
+
+def test_canonical_artist_outranks_tribute_mention():
+    """Tribute cover by another artist mentioning original artist in title must be rejected over canonical release."""
+    target = {"title": "One Dance", "artist": "Drake;Wizkid;Kyla", "duration_ms": 173986}
+    tribute_cand = {
+        "videoId": "tribute_vid",
+        "title": "One Dance [Reprise to Drake Feat Wizkid & Kyla]",
+        "artists": [{"name": "Michael Williams"}],
+        "duration": "2:51",  # closer duration
+    }
+    official_cand = {
+        "videoId": "official_vid",
+        "title": "One Dance",
+        "artists": [{"name": "Drake"}],
+        "duration": "3:47",  # album cut duration
+    }
+    assert matching.score_candidate(target, tribute_cand) == 0.0
+    match, best_score = matching.find_best_match(target, [tribute_cand, official_cand])
+    assert match is not None
+    assert match["videoId"] == "official_vid"
+    assert best_score >= 50.0
+
