@@ -439,17 +439,28 @@ def search_and_add(
 
 def preview_matches(
     tracks: list[dict],
+    ytmusic_playlist_id: str | None = None,
     user_id: str = DEFAULT_USER_ID,
     on_progress=None,
 ) -> dict:
     """
     Dry-run matching against YouTube Music at zero write-quota cost.
     Searches and scores candidates for each track without modifying any playlist.
+    Identifies catalog gaps, confidence misses, and playlist/batch duplicates.
     """
     yt = get_client(user_id)
     matched_count = 0
     skipped_count = 0
+    duplicate_count = 0
     details = []
+
+    existing_video_ids: set[str] = set()
+    existing_title_keys: set = set()
+    if ytmusic_playlist_id:
+        try:
+            existing_video_ids, existing_title_keys = get_playlist_existing_tracks(ytmusic_playlist_id, user_id)
+        except Exception:
+            existing_video_ids, existing_title_keys = set(), set()
 
     for idx, t in enumerate(tracks):
         if on_progress:
@@ -506,6 +517,26 @@ def preview_matches(
             elif t.get("artist"):
                 match_artist = t["artist"].split(";")[0].split(",")[0].strip()
 
+            is_dup = (vid in existing_video_ids or _is_in_existing_keys(match_title, match_artist, existing_title_keys))
+            if is_dup:
+                skipped_count += 1
+                duplicate_count += 1
+                details.append({
+                    "title": t.get("title", ""),
+                    "artist": t.get("artist", ""),
+                    "album": t.get("album", ""),
+                    "status": "skipped",
+                    "category": "duplicate",
+                    "matched_title": match_title,
+                    "matched_artist": match_artist,
+                    "videoId": vid,
+                    "score": round(score, 1),
+                    "reason": "already in destination playlist" if ytmusic_playlist_id else "duplicate match in CSV",
+                })
+                continue
+
+            existing_video_ids.add(vid)
+            existing_title_keys.add((match_title.lower(), match_artist.lower()))
             matched_count += 1
             details.append({
                 "title": t.get("title", ""),
@@ -533,5 +564,6 @@ def preview_matches(
         "total": len(tracks),
         "matched_count": matched_count,
         "skipped_count": skipped_count,
+        "duplicate_count": duplicate_count,
         "details": details,
     }

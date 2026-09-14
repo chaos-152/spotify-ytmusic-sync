@@ -10,7 +10,7 @@ load_dotenv()
 load_dotenv(Path(__file__).parent / ".env")
 
 
-from . import db, csv_import, ytmusic_auth, sync
+from . import db, csv_import, ytmusic_auth, sync, matching
 
 app = FastAPI(title="Spotify (CSV) -> YT Music Sync")
 db.init_db()
@@ -102,7 +102,21 @@ def link_tracks(link_id: int):
     link = db.get_link(link_id)
     if not link:
         raise HTTPException(404, "Link not found")
-    return db.get_tracks(link_id)
+    tracks = db.get_tracks(link_id)
+    seen: dict[tuple[str, str], int] = {}
+    result = []
+    for idx, t in enumerate(tracks):
+        key = (matching.clean_text(t.get("title", "")), matching.clean_text(t.get("artist", "")))
+        t_copy = dict(t)
+        if key in seen:
+            t_copy["is_duplicate"] = True
+            t_copy["first_seen_index"] = seen[key] + 1
+        else:
+            seen[key] = idx
+            t_copy["is_duplicate"] = False
+            t_copy["first_seen_index"] = idx + 1
+        result.append(t_copy)
+    return result
 
 
 @app.post("/api/links/{link_id}/preview")
@@ -113,7 +127,11 @@ def preview_link(link_id: int):
     tracks = db.get_tracks(link_id)
     if not tracks:
         raise HTTPException(400, "No tracks stored for this playlist -- re-import the CSV")
-    return ytmusic_auth.preview_matches(tracks, link["user_id"])
+    return ytmusic_auth.preview_matches(
+        tracks,
+        ytmusic_playlist_id=link.get("ytmusic_playlist_id"),
+        user_id=link["user_id"],
+    )
 
 
 @app.get("/api/links/{link_id}/runs")

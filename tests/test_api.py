@@ -149,3 +149,52 @@ def test_preview_link_success(client, exportify_csv_bytes, monkeypatch):
     assert data["details"][0]["matched_title"] == "Get Lucky"
 
 
+def test_get_link_tracks_duplicate_detection(client):
+    csv_content = (
+        b"Track Name,Artist Name(s),Album Name,Duration (ms)\n"
+        b"Song A,Artist A,Album A,180000\n"
+        b"Song B,Artist B,Album B,200000\n"
+        b"Song A,Artist A,Album A,180000\n"
+    )
+    files = {"file": ("dup_playlist.csv", io.BytesIO(csv_content), "text/csv")}
+    import_res = client.post("/api/import-csv", data={"name": "Dup Track Test"}, files=files)
+    link_id = import_res.json()["id"]
+
+    res = client.get(f"/api/links/{link_id}/tracks")
+    assert res.status_code == 200
+    tracks = res.json()
+    assert len(tracks) == 3
+    assert tracks[0]["is_duplicate"] is False
+    assert tracks[1]["is_duplicate"] is False
+    assert tracks[2]["is_duplicate"] is True
+    assert tracks[2]["first_seen_index"] == 1
+
+
+def test_preview_link_duplicate_detection(client, monkeypatch):
+    csv_content = (
+        b"Track Name,Artist Name(s),Album Name,Duration (ms)\n"
+        b"Song A,Artist A,Album A,180000\n"
+        b"Song A,Artist A,Album A,180000\n"
+    )
+    files = {"file": ("dup_preview.csv", io.BytesIO(csv_content), "text/csv")}
+    import_res = client.post("/api/import-csv", data={"name": "Dup Preview Test"}, files=files)
+    link_id = import_res.json()["id"]
+
+    mock_yt = MagicMock()
+    mock_yt.search.return_value = [
+        {"videoId": "vid_dup_1", "title": "Song A", "artists": [{"name": "Artist A"}], "duration": "3:00"}
+    ]
+    monkeypatch.setattr(ytmusic_auth, "get_client", lambda user_id="me": mock_yt)
+
+    res = client.post(f"/api/links/{link_id}/preview")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 2
+    assert data["matched_count"] == 1
+    assert data["duplicate_count"] == 1
+    assert data["details"][0]["status"] == "matched"
+    assert data["details"][1]["status"] == "skipped"
+    assert data["details"][1]["category"] == "duplicate"
+
+
+

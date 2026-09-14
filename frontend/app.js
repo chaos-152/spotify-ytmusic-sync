@@ -252,7 +252,7 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeModal();
 });
 
-// ---- Track Preview (Feature 1) ----
+// ---- Track Preview with Duplicate Detection (Feature 1) ----
 
 async function openTrackPreview(link) {
   openModal(
@@ -263,38 +263,73 @@ async function openTrackPreview(link) {
 
   try {
     const tracks = await api(`/api/links/${link.id}/tracks`);
-    const subtitle = `${tracks.length} tracks parsed from CSV`;
+    const dupCount = tracks.filter((t) => t.is_duplicate).length;
+    const uniqueCount = tracks.length - dupCount;
 
-    let tableHtml = `
-      <table class="telemetry-table">
-        <thead>
-          <tr>
-            <th style="width: 40px;">#</th>
-            <th>Title</th>
-            <th>Artist</th>
-            <th>Album</th>
-            <th style="width: 70px; text-align: right;">Length</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
-
-    tracks.forEach((t, idx) => {
-      const durSec = t.duration_ms ? Math.round(t.duration_ms / 1000) : null;
-      const durStr = durSec ? `${Math.floor(durSec / 60)}:${String(durSec % 60).padStart(2, "0")}` : "—";
-      tableHtml += `
-        <tr>
-          <td style="color:#888;">${idx + 1}</td>
-          <td style="font-weight:600; color:#fff;">${escapeHtml(t.title)}</td>
-          <td style="color:#ccc;">${escapeHtml(t.artist)}</td>
-          <td style="color:#888;">${escapeHtml(t.album || "—")}</td>
-          <td style="text-align:right; font-family:monospace; color:#888;">${durStr}</td>
-        </tr>
+    let noticeHtml = "";
+    if (dupCount > 0) {
+      noticeHtml = `
+        <div style="background: rgba(255, 170, 0, 0.08); border: 1px solid rgba(255, 170, 0, 0.28); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.82rem; color: #ffbb33; line-height: 1.45;">
+          ⚠️ <strong>Duplicate Detection:</strong> Found <strong>${dupCount} repeated track${dupCount > 1 ? "s" : ""}</strong> in this playlist CSV. They are flagged below and will be automatically skipped during sync to prevent cluttering YouTube Music.
+        </div>
       `;
-    });
+    }
 
-    tableHtml += `</tbody></table>`;
-    openModal(`Tracks in "${link.source_name}"`, subtitle, tableHtml);
+    const renderTrackTable = (filter) => {
+      let filtered = tracks;
+      if (filter === "unique") filtered = tracks.filter((t) => !t.is_duplicate);
+      if (filter === "duplicates") filtered = tracks.filter((t) => t.is_duplicate);
+
+      if (filtered.length === 0) {
+        return `${noticeHtml}<p class="muted" style="padding: 1.5rem 0; text-align:center;">No tracks under the "${filter}" filter.</p>`;
+      }
+
+      let html = noticeHtml + `
+        <table class="telemetry-table">
+          <thead>
+            <tr>
+              <th style="width: 40px;">#</th>
+              <th>Title</th>
+              <th>Artist</th>
+              <th>Album</th>
+              <th style="width: 130px;">Status</th>
+              <th style="width: 70px; text-align: right;">Length</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      filtered.forEach((t, idx) => {
+        const durSec = t.duration_ms ? Math.round(t.duration_ms / 1000) : null;
+        const durStr = durSec ? `${Math.floor(durSec / 60)}:${String(durSec % 60).padStart(2, "0")}` : "—";
+        const badge = t.is_duplicate
+          ? `<span class="badge neutral" title="First appeared at track #${t.first_seen_index}">Duplicate (matches #${t.first_seen_index})</span>`
+          : `<span class="badge success">Unique</span>`;
+
+        html += `
+          <tr>
+            <td style="color:#888;">${idx + 1}</td>
+            <td style="font-weight:600; color:#fff;">${escapeHtml(t.title)}</td>
+            <td style="color:#ccc;">${escapeHtml(t.artist)}</td>
+            <td style="color:#888;">${escapeHtml(t.album || "—")}</td>
+            <td>${badge}</td>
+            <td style="text-align:right; font-family:monospace; color:#888;">${durStr}</td>
+          </tr>
+        `;
+      });
+
+      html += `</tbody></table>`;
+      return html;
+    };
+
+    const subtitle = `${tracks.length} tracks &bull; ${uniqueCount} unique &bull; ${dupCount} duplicate${dupCount === 1 ? "" : "s"}`;
+    const tabs = [
+      { label: `All (${tracks.length})`, onClick: () => { $("modal-content").innerHTML = renderTrackTable("all"); } },
+      { label: `Unique (${uniqueCount})`, onClick: () => { $("modal-content").innerHTML = renderTrackTable("unique"); } },
+      { label: `Duplicates (${dupCount})`, onClick: () => { $("modal-content").innerHTML = renderTrackTable("duplicates"); } },
+    ];
+
+    openModal(`Tracks in "${link.source_name}"`, subtitle, renderTrackTable("all"), tabs);
   } catch (err) {
     openModal(
       `Tracks in "${link.source_name}"`,
@@ -433,30 +468,56 @@ async function openPreSyncPreview(link) {
 
   try {
     const preview = await api(`/api/links/${link.id}/preview`, { method: "POST" });
-    const subtitle = `Total: ${preview.total} &bull; Matched: ${preview.matched_count} &bull; Skipped/Gaps: ${preview.skipped_count}`;
+    const items = preview.details || [];
+    const dupCount = items.filter((d) => d.category === "duplicate").length;
+    const gapCount = items.filter((d) => d.category === "threshold_miss" || d.category === "no_results" || d.category === "error").length;
+    const toAddCount = items.filter((d) => d.status === "matched").length;
+
+    let noticeHtml = "";
+    if (dupCount > 0) {
+      noticeHtml = `
+        <div style="background: rgba(255, 170, 0, 0.08); border: 1px solid rgba(255, 170, 0, 0.28); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.82rem; color: #ffbb33; line-height: 1.45;">
+          ℹ️ <strong>Duplicate Detection:</strong> Detected <strong>${dupCount} duplicate track${dupCount > 1 ? "s" : ""}</strong> (already present in your YouTube Music playlist or repeated in this batch). They will be skipped automatically during sync.
+        </div>
+      `;
+    }
+
+    const subtitle = `Total: ${preview.total} &bull; To Add: ${toAddCount} &bull; Duplicates: ${dupCount} &bull; Catalog Gaps: ${gapCount}`;
 
     const renderPreviewTable = (filter) => {
-      let items = preview.details || [];
-      if (filter === "matched") items = items.filter((d) => d.status === "matched");
-      if (filter === "skipped") items = items.filter((d) => d.status === "skipped" || d.status === "error");
+      let filtered = items;
+      if (filter === "matched") filtered = items.filter((d) => d.status === "matched");
+      if (filter === "duplicates") filtered = items.filter((d) => d.category === "duplicate");
+      if (filter === "gaps") filtered = items.filter((d) => d.category === "threshold_miss" || d.category === "no_results" || d.category === "error");
 
-      let html = `
+      if (filtered.length === 0) {
+        return `${noticeHtml}<p class="muted" style="padding: 1.5rem 0; text-align:center;">No tracks under the "${filter}" filter.</p>`;
+      }
+
+      let html = noticeHtml + `
         <table class="telemetry-table">
           <thead>
             <tr>
               <th>Target Track</th>
               <th>Proposed YouTube Candidate</th>
-              <th style="width: 90px;">Outcome</th>
-              <th style="width: 130px;">Score / Reason</th>
+              <th style="width: 100px;">Outcome</th>
+              <th style="width: 140px;">Score / Reason</th>
             </tr>
           </thead>
           <tbody>
       `;
 
-      items.forEach((item) => {
-        const badge = item.status === "matched"
-          ? `<span class="badge success">Match</span>`
-          : `<span class="badge warning">Skip</span>`;
+      filtered.forEach((item) => {
+        let badge = "";
+        if (item.status === "matched") {
+          badge = `<span class="badge success">Will Add</span>`;
+        } else if (item.category === "duplicate") {
+          badge = `<span class="badge neutral">Duplicate</span>`;
+        } else if (item.category === "threshold_miss" || item.category === "no_results") {
+          badge = `<span class="badge warning">Catalog Gap</span>`;
+        } else {
+          badge = `<span class="badge danger">Error</span>`;
+        }
 
         const cand = item.matched_title
           ? `<strong>${escapeHtml(item.matched_title)}</strong>${item.matched_artist ? ` <span style="color:#888;">[${escapeHtml(item.matched_artist)}]</span>` : ""}`
@@ -485,19 +546,22 @@ async function openPreSyncPreview(link) {
 
     const tabs = [
       { label: `All (${preview.total})`, onClick: () => { $("modal-content").innerHTML = renderPreviewTable("all"); } },
-      { label: `Matches (${preview.matched_count})`, onClick: () => { $("modal-content").innerHTML = renderPreviewTable("matched"); } },
-      { label: `Skipped (${preview.skipped_count})`, onClick: () => { $("modal-content").innerHTML = renderPreviewTable("skipped"); } },
+      { label: `To Add (${toAddCount})`, onClick: () => { $("modal-content").innerHTML = renderPreviewTable("matched"); } },
+      { label: `Duplicates (${dupCount})`, onClick: () => { $("modal-content").innerHTML = renderPreviewTable("duplicates"); } },
+      { label: `Catalog Gaps (${gapCount})`, onClick: () => { $("modal-content").innerHTML = renderPreviewTable("gaps"); } },
     ];
 
     const footerHtml = `
       <button class="btn secondary small" onclick="closeModal()">Cancel</button>
-      <button class="btn small" id="approve-sync-btn">Approve & Start Sync</button>
+      <button class="btn small" id="approve-sync-btn" ${toAddCount === 0 ? "disabled" : ""}>
+        ${toAddCount > 0 ? `Approve & Add ${toAddCount} Tracks` : "All Tracks Up to Date"}
+      </button>
     `;
 
     openModal(`Pre-Sync Match Preview: "${link.source_name}"`, subtitle, renderPreviewTable("all"), tabs, footerHtml);
 
     const approveBtn = $("approve-sync-btn");
-    if (approveBtn) {
+    if (approveBtn && toAddCount > 0) {
       approveBtn.onclick = () => {
         closeModal();
         triggerSync(link.id);
