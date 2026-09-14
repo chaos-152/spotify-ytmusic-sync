@@ -1,5 +1,15 @@
 const $ = (id) => document.getElementById(id);
 
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 async function api(path, opts = {}) {
   const res = await fetch(path, opts);
   if (!res.ok) {
@@ -206,15 +216,40 @@ function openModal(title, subtitle, contentHtml, tabs = [], footerHtml = "") {
 }
 
 function closeModal() {
-  $("modal-backdrop").classList.add("hidden");
-  $("modal-content").innerHTML = "";
-  $("modal-tabs").innerHTML = "";
-  $("modal-footer").innerHTML = "";
+  const backdrop = $("modal-backdrop");
+  if (backdrop) backdrop.classList.add("hidden");
+  const content = $("modal-content");
+  if (content) content.innerHTML = "";
+  const tabs = $("modal-tabs");
+  if (tabs) {
+    tabs.innerHTML = "";
+    tabs.classList.add("hidden");
+  }
+  const footer = $("modal-footer");
+  if (footer) {
+    footer.innerHTML = "";
+    footer.classList.add("hidden");
+  }
+}
+window.closeModal = closeModal;
+
+const modalCloseBtn = $("modal-close-btn");
+if (modalCloseBtn) {
+  modalCloseBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    closeModal();
+  });
 }
 
-$("modal-close-btn").addEventListener("click", closeModal);
-$("modal-backdrop").addEventListener("click", (e) => {
-  if (e.target === $("modal-backdrop")) closeModal();
+const modalBackdrop = $("modal-backdrop");
+if (modalBackdrop) {
+  modalBackdrop.addEventListener("click", (e) => {
+    if (e.target === modalBackdrop) closeModal();
+  });
+}
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeModal();
 });
 
 // ---- Track Preview (Feature 1) ----
