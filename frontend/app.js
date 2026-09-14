@@ -308,6 +308,8 @@ async function openTrackPreview(link) {
 
 function openRunInspection(run) {
   let details = [];
+  const isLegacy = !run.details;
+
   if (run.details) {
     details = typeof run.details === "string" ? JSON.parse(run.details) : run.details;
   } else if (run.errors) {
@@ -317,8 +319,25 @@ function openRunInspection(run) {
       title: e.track || "Track",
       artist: "",
       status: "skipped",
+      category: "threshold_miss",
       reason: e.reason || "Skipped",
     }));
+  }
+
+  let noticeHtml = "";
+  if (isLegacy) {
+    const unloggedDups = Math.max(0, run.skipped - details.length);
+    noticeHtml = `
+      <div style="background: rgba(255, 170, 0, 0.08); border: 1px solid rgba(255, 170, 0, 0.28); border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 1.2rem; font-size: 0.82rem; color: #ffbb33; line-height: 1.45;">
+        <strong>ℹ️ Legacy Run Note:</strong> This sync (Run #${run.id}) was completed before full per-track telemetry was enabled.
+        Of the ${run.skipped} skipped songs:
+        <ul style="margin: 0.4rem 0 0.4rem 1.2rem; padding: 0;">
+          <li><strong>${details.length} tracks</strong> were catalog gaps that did not meet confidence criteria (listed below).</li>
+          ${unloggedDups > 0 ? `<li><strong>${unloggedDups} tracks</strong> were duplicates already present in your YouTube Music playlist from an earlier sync run.</li>` : ""}
+        </ul>
+        <em>Running a new sync or Pre-Sync Preview now captures complete audit records for all tracks!</em>
+      </div>
+    `;
   }
 
   const renderTable = (filter) => {
@@ -327,10 +346,10 @@ function openRunInspection(run) {
     if (filter === "skipped") filtered = details.filter((d) => d.status === "skipped" || d.status === "error");
 
     if (filtered.length === 0) {
-      return `<p class="muted" style="padding: 1rem 0;">No items in this filter.</p>`;
+      return `${noticeHtml}<p class="muted" style="padding: 1.5rem 0; text-align:center;">No items found under the "${filter}" filter.</p>`;
     }
 
-    let html = `
+    let html = noticeHtml + `
       <table class="telemetry-table">
         <thead>
           <tr>
@@ -384,11 +403,18 @@ function openRunInspection(run) {
   const skippedCount = run.skipped;
   const subtitle = `Run #${run.id} &bull; ${addedCount} added, ${skippedCount} skipped (Finished: ${new Date(run.finished_at * 1000).toLocaleTimeString()})`;
 
-  const tabs = [
-    { label: `All (${details.length || (addedCount + skippedCount)})`, onClick: () => { $("modal-content").innerHTML = renderTable("all"); } },
-    { label: `Added (${addedCount})`, onClick: () => { $("modal-content").innerHTML = renderTable("added"); } },
-    { label: `Skipped (${skippedCount})`, onClick: () => { $("modal-content").innerHTML = renderTable("skipped"); } },
-  ];
+  const addedFiltered = details.filter((d) => d.status === "added" || d.status === "matched").length;
+  const skippedFiltered = details.filter((d) => d.status === "skipped" || d.status === "error").length;
+
+  const tabs = isLegacy
+    ? [
+        { label: `Catalog Gaps (${details.length})`, onClick: () => { $("modal-content").innerHTML = renderTable("all"); } },
+      ]
+    : [
+        { label: `All (${details.length})`, onClick: () => { $("modal-content").innerHTML = renderTable("all"); } },
+        { label: `Added (${addedFiltered})`, onClick: () => { $("modal-content").innerHTML = renderTable("added"); } },
+        { label: `Skipped (${skippedFiltered})`, onClick: () => { $("modal-content").innerHTML = renderTable("skipped"); } },
+      ];
 
   openModal(`Sync Run Telemetry`, subtitle, renderTable("all"), tabs);
 }
