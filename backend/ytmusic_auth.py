@@ -301,22 +301,31 @@ def sanitize_search_query(title: str, artist: str) -> str:
     return " ".join(query.split())
 
 
-def search_and_add(playlist_id: str, tracks: list[dict], user_id: str = DEFAULT_USER_ID) -> dict:
+def search_and_add(
+    playlist_id: str,
+    tracks: list[dict],
+    user_id: str = DEFAULT_USER_ID,
+    on_progress=None,
+) -> dict:
     """
     For each track from the imported CSV:
     1. Check existing playlist items by BOTH videoId AND normalized title to prevent
        semantic duplicates when YouTube search returns alternate uploads across sessions.
     2. Search YT Music for candidates with query sanitization and fallback.
     3. Add only new, validated matches to the YouTube Music playlist in batches.
-    Returns {added: int, skipped: int, errors: [{track, reason}]}.
+    Returns {added: int, skipped: int, errors: [{track, reason}], details: [{track telemetry}]}.
     """
     yt = get_client(user_id)
     existing_video_ids, existing_title_keys = get_playlist_existing_tracks(playlist_id, user_id)
 
     added, skipped, errors = 0, 0, []
     video_ids_to_add = []
+    details = []
 
-    for t in tracks:
+    for idx, t in enumerate(tracks):
+        if on_progress:
+            on_progress(idx + 1, len(tracks), t.get("title", ""))
+
         query = sanitize_search_query(t.get("title", ""), t.get("artist", ""))
         try:
             results = yt.search(query, filter="songs", limit=5)
@@ -329,6 +338,14 @@ def search_and_add(playlist_id: str, tracks: list[dict], user_id: str = DEFAULT_
             if not results:
                 skipped += 1
                 errors.append({"track": query, "reason": "no search results"})
+                details.append({
+                    "title": t.get("title", ""),
+                    "artist": t.get("artist", ""),
+                    "status": "skipped",
+                    "category": "no_results",
+                    "score": 0.0,
+                    "reason": "no search results",
+                })
                 continue
 
             best_match, score = matching.find_best_match(t, results)
@@ -346,27 +363,62 @@ def search_and_add(playlist_id: str, tracks: list[dict], user_id: str = DEFAULT_
             if not best_match:
                 skipped += 1
                 errors.append({"track": query, "reason": f"no match met confidence threshold (best score: {score:.1f})"})
+                details.append({
+                    "title": t.get("title", ""),
+                    "artist": t.get("artist", ""),
+                    "status": "skipped",
+                    "category": "threshold_miss",
+                    "score": round(score, 1),
+                    "reason": f"no match met confidence threshold (best score: {score:.1f})",
+                })
                 continue
 
             vid = best_match["videoId"]
-            match_title = best_match.get("title", "").lower().strip()
+            match_title = best_match.get("title", "").strip()
             match_artist = ""
             if best_match.get("artists"):
-                match_artist = best_match["artists"][0].get("name", "").lower().strip()
+                match_artist = best_match["artists"][0].get("name", "").strip()
             elif t.get("artist"):
-                match_artist = t["artist"].split(";")[0].split(",")[0].lower().strip()
+                match_artist = t["artist"].split(";")[0].split(",")[0].strip()
 
             # Dual-layer dedup: videoId OR normalized (title, artist) already in playlist
             if vid in existing_video_ids or _is_in_existing_keys(match_title, match_artist, existing_title_keys):
                 skipped += 1
+                details.append({
+                    "title": t.get("title", ""),
+                    "artist": t.get("artist", ""),
+                    "status": "skipped",
+                    "category": "duplicate",
+                    "matched_title": match_title,
+                    "matched_artist": match_artist,
+                    "videoId": vid,
+                    "reason": "already in playlist",
+                })
                 continue
 
             video_ids_to_add.append(vid)
             existing_video_ids.add(vid)
-            existing_title_keys.add((match_title, match_artist))
+            existing_title_keys.add((match_title.lower(), match_artist.lower()))
+            details.append({
+                "title": t.get("title", ""),
+                "artist": t.get("artist", ""),
+                "status": "added",
+                "category": "match",
+                "matched_title": match_title,
+                "matched_artist": match_artist,
+                "videoId": vid,
+                "score": round(score, 1),
+            })
         except Exception as e:
             skipped += 1
             errors.append({"track": query, "reason": str(e)})
+            details.append({
+                "title": t.get("title", ""),
+                "artist": t.get("artist", ""),
+                "status": "error",
+                "category": "error",
+                "reason": str(e),
+            })
 
     # Add new items in batches of 50 to avoid oversized request payloads
     if video_ids_to_add:
@@ -379,7 +431,107 @@ def search_and_add(playlist_id: str, tracks: list[dict], user_id: str = DEFAULT_
             if actually_added < len(chunk):
                 unprocessed = len(video_ids_to_add) - added
                 skipped += unprocessed
-                errors.append({"track": "*", "reason": f"YouTube Data API daily quota reached. {added} tracks saved; resuming will skip existing tracks."})
+                errors.append({"track": "*", "reason": f"YouTube Data API write limit reached. {added} tracks saved; resuming will skip existing tracks."})
                 break
 
-    return {"added": added, "skipped": skipped, "errors": errors}
+    return {"added": added, "skipped": skipped, "errors": errors, "details": details}
+
+
+def preview_matches(
+    tracks: list[dict],
+    user_id: str = DEFAULT_USER_ID,
+    on_progress=None,
+) -> dict:
+    """
+    Dry-run matching against YouTube Music at zero write-quota cost.
+    Searches and scores candidates for each track without modifying any playlist.
+    """
+    yt = get_client(user_id)
+    matched_count = 0
+    skipped_count = 0
+    details = []
+
+    for idx, t in enumerate(tracks):
+        if on_progress:
+            on_progress(idx + 1, len(tracks), t.get("title", ""))
+        query = sanitize_search_query(t.get("title", ""), t.get("artist", ""))
+        try:
+            results = yt.search(query, filter="songs", limit=5)
+            if not results:
+                fallback_query = sanitize_search_query(t.get("artist", ""), t.get("title", ""))
+                if fallback_query != query:
+                    results = yt.search(fallback_query, filter="songs", limit=5)
+
+            if not results:
+                skipped_count += 1
+                details.append({
+                    "title": t.get("title", ""),
+                    "artist": t.get("artist", ""),
+                    "album": t.get("album", ""),
+                    "status": "skipped",
+                    "category": "no_results",
+                    "score": 0.0,
+                    "reason": "no search results",
+                })
+                continue
+
+            best_match, score = matching.find_best_match(t, results)
+            if not best_match:
+                fallback_query = sanitize_search_query(t.get("artist", ""), t.get("title", ""))
+                if fallback_query != query:
+                    fallback_results = yt.search(fallback_query, filter="songs", limit=5)
+                    if fallback_results:
+                        fb_match, fb_score = matching.find_best_match(t, fallback_results)
+                        if fb_match and fb_score > score:
+                            best_match, score = fb_match, fb_score
+
+            if not best_match:
+                skipped_count += 1
+                details.append({
+                    "title": t.get("title", ""),
+                    "artist": t.get("artist", ""),
+                    "album": t.get("album", ""),
+                    "status": "skipped",
+                    "category": "threshold_miss",
+                    "score": round(score, 1),
+                    "reason": f"no match met confidence threshold (best score: {score:.1f})",
+                })
+                continue
+
+            vid = best_match.get("videoId")
+            match_title = best_match.get("title", "").strip()
+            match_artist = ""
+            if best_match.get("artists"):
+                match_artist = best_match["artists"][0].get("name", "").strip()
+            elif t.get("artist"):
+                match_artist = t["artist"].split(";")[0].split(",")[0].strip()
+
+            matched_count += 1
+            details.append({
+                "title": t.get("title", ""),
+                "artist": t.get("artist", ""),
+                "album": t.get("album", ""),
+                "status": "matched",
+                "category": "match",
+                "matched_title": match_title,
+                "matched_artist": match_artist,
+                "videoId": vid,
+                "score": round(score, 1),
+            })
+        except Exception as e:
+            skipped_count += 1
+            details.append({
+                "title": t.get("title", ""),
+                "artist": t.get("artist", ""),
+                "album": t.get("album", ""),
+                "status": "error",
+                "category": "error",
+                "reason": str(e),
+            })
+
+    return {
+        "total": len(tracks),
+        "matched_count": matched_count,
+        "skipped_count": skipped_count,
+        "details": details,
+    }

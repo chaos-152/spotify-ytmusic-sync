@@ -260,3 +260,200 @@ h2 { font-size: 1.05rem; margin: 0 0 1rem; color: var(--text); }
   color: #ff6b6b;
 }
 
+/* Actions & Buttons */
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+.btn.outline {
+  background: transparent;
+  border: 1px solid #444;
+  color: var(--text);
+}
+.btn.outline:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+.btn.danger {
+  background: #ff4d4d;
+  color: #fff;
+}
+
+/* Progress bar */
+.progress-wrap {
+  margin-top: 0.6rem;
+  padding: 0.6rem;
+  background: #181818;
+  border-radius: 8px;
+  border: 1px solid #282828;
+}
+.progress-bar-container {
+  width: 100%;
+  height: 6px;
+  background: #2a2a2a;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 0.4rem;
+}
+.progress-bar {
+  height: 100%;
+  background: var(--green);
+  width: 0%;
+  transition: width 0.25s ease;
+}
+.progress-status {
+  font-size: 0.78rem;
+  color: #aaa;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* Modal Dialog */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+.modal-dialog {
+  background: #1c1c1c;
+  border: 1px solid #333;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 800px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+  animation: modalIn 0.15s ease-out;
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 1.2rem 1.4rem;
+  border-bottom: 1px solid #2a2a2a;
+}
+.modal-title {
+  font-size: 1.15rem;
+  margin: 0;
+  color: #fff;
+  font-weight: 700;
+}
+.modal-subtitle {
+  font-size: 0.8rem;
+  margin: 0.25rem 0 0;
+}
+.modal-close-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 1.5rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  transition: color 0.15s;
+}
+.modal-close-btn:hover { color: #fff; }
+
+.modal-tabs {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1.4rem 0;
+  border-bottom: 1px solid #2a2a2a;
+}
+.tab-btn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #888;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.tab-btn:hover { color: #ddd; }
+.tab-btn.active {
+  color: var(--green);
+  border-bottom-color: var(--green);
+}
+
+.modal-content {
+  padding: 1.2rem 1.4rem;
+  overflow-y: auto;
+  flex: 1;
+}
+.modal-footer {
+  padding: 0.9rem 1.4rem;
+  border-top: 1px solid #2a2a2a;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+/* Table and telemetry formatting */
+.telemetry-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  text-align: left;
+}
+.telemetry-table th {
+  background: #141414;
+  color: #888;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid #2a2a2a;
+  position: sticky;
+  top: 0;
+}
+.telemetry-table td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid #242424;
+}
+.telemetry-table tr:hover td {
+  background: #232323;
+}
+.badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  line-height: 1.2;
+}
+.badge.success {
+  background: rgba(29, 185, 84, 0.15);
+  color: #1ed760;
+  border: 1px solid rgba(29, 185, 84, 0.3);
+}
+.badge.warning {
+  background: rgba(255, 170, 0, 0.15);
+  color: #ffaa00;
+  border: 1px solid rgba(255, 170, 0, 0.3);
+}
+.badge.danger {
+  background: rgba(255, 77, 77, 0.15);
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 77, 77, 0.3);
+}
+.badge.neutral {
+  background: #2a2a2a;
+  color: #aaa;
+}
+
+

@@ -108,3 +108,44 @@ def test_index_serves_html(client):
     res = client.get("/")
     assert res.status_code == 200
     assert "Spotify → YT Music Sync" in res.text
+
+
+def test_get_link_tracks_success(client, exportify_csv_bytes):
+    files = {"file": ("playlist.csv", io.BytesIO(exportify_csv_bytes), "text/csv")}
+    import_res = client.post("/api/import-csv", data={"name": "Track Preview Test"}, files=files)
+    link_id = import_res.json()["id"]
+
+    res = client.get(f"/api/links/{link_id}/tracks")
+    assert res.status_code == 200
+    tracks = res.json()
+    assert len(tracks) == 3
+    assert tracks[0]["title"] == "Get Lucky"
+    assert tracks[0]["artist"] == "Daft Punk"
+
+
+def test_get_link_tracks_not_found(client):
+    res = client.get("/api/links/99999/tracks")
+    assert res.status_code == 404
+
+
+def test_preview_link_success(client, exportify_csv_bytes, monkeypatch):
+    files = {"file": ("playlist.csv", io.BytesIO(exportify_csv_bytes), "text/csv")}
+    import_res = client.post("/api/import-csv", data={"name": "Preview Test"}, files=files)
+    link_id = import_res.json()["id"]
+
+    mock_yt = MagicMock()
+    mock_yt.search.return_value = [
+        {"videoId": "vid_preview_1", "title": "Get Lucky", "artists": [{"name": "Daft Punk"}], "duration": "6:09"}
+    ]
+    monkeypatch.setattr(ytmusic_auth, "get_client", lambda user_id="me": mock_yt)
+
+    res = client.post(f"/api/links/{link_id}/preview")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 3
+    assert "details" in data
+    assert len(data["details"]) == 3
+    assert data["details"][0]["status"] == "matched"
+    assert data["details"][0]["matched_title"] == "Get Lucky"
+
+

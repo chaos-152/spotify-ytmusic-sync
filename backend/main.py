@@ -97,6 +97,25 @@ def trigger_sync(link_id: int, background_tasks: BackgroundTasks):
     return {"started": True}
 
 
+@app.get("/api/links/{link_id}/tracks")
+def link_tracks(link_id: int):
+    link = db.get_link(link_id)
+    if not link:
+        raise HTTPException(404, "Link not found")
+    return db.get_tracks(link_id)
+
+
+@app.post("/api/links/{link_id}/preview")
+def preview_link(link_id: int):
+    link = db.get_link(link_id)
+    if not link:
+        raise HTTPException(404, "Link not found")
+    tracks = db.get_tracks(link_id)
+    if not tracks:
+        raise HTTPException(400, "No tracks stored for this playlist -- re-import the CSV")
+    return ytmusic_auth.preview_matches(tracks, link["user_id"])
+
+
 @app.get("/api/links/{link_id}/runs")
 def runs(link_id: int):
     return db.get_runs_for_link(link_id)

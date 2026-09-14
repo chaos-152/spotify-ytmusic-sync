@@ -71,6 +71,22 @@
       <h2>3. Your imported playlists</h2>
       <div id="links-list"></div>
     </section>
+
+    <!-- Modal for Tracks Preview, Match Preview, and Run Inspection -->
+    <div id="modal-backdrop" class="modal-backdrop hidden">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div id="modal-title-area">
+            <h3 id="modal-title" class="modal-title">Playlist Details</h3>
+            <p id="modal-subtitle" class="modal-subtitle muted"></p>
+          </div>
+          <button type="button" id="modal-close-btn" class="modal-close-btn" title="Close">&times;</button>
+        </div>
+        <div id="modal-tabs" class="modal-tabs hidden"></div>
+        <div id="modal-content" class="modal-content"></div>
+        <div id="modal-footer" class="modal-footer hidden"></div>
+      </div>
+    </div>
   </div>
 
   <script src="/static/app.js"></script>

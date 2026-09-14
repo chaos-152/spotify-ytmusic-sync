@@ -34,9 +34,24 @@ def run_sync(link_id: int) -> int:
             db.set_ytmusic_playlist_id(link_id, ytmusic_playlist_id)
 
 
-        result = ytmusic_auth.search_and_add(ytmusic_playlist_id, tracks, link["user_id"])
+        def on_progress(cur, total, title):
+            db.update_run_progress(run_id, cur, total, f"Processing {cur}/{total}: {title}")
 
-        db.finish_run(run_id, "done", result["added"], result["skipped"], result["errors"])
+        result = ytmusic_auth.search_and_add(
+            ytmusic_playlist_id,
+            tracks,
+            link["user_id"],
+            on_progress=on_progress,
+        )
+
+        db.finish_run(
+            run_id,
+            "done",
+            result["added"],
+            result["skipped"],
+            result["errors"],
+            details=result.get("details"),
+        )
     except Exception as e:
         db.finish_run(run_id, "error", 0, 0, [{"track": "*", "reason": str(e)}])
         raise

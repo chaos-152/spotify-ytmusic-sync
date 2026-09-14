@@ -65,6 +65,17 @@ def init_db():
         if "duration_ms" not in track_cols:
             conn.execute("ALTER TABLE tracks ADD COLUMN duration_ms INTEGER")
 
+        # Migrate sync_runs table for live progress and structured telemetry
+        run_cols = [r["name"] for r in conn.execute("PRAGMA table_info(sync_runs)").fetchall()]
+        if "current" not in run_cols:
+            conn.execute("ALTER TABLE sync_runs ADD COLUMN current INTEGER DEFAULT 0")
+        if "total" not in run_cols:
+            conn.execute("ALTER TABLE sync_runs ADD COLUMN total INTEGER DEFAULT 0")
+        if "message" not in run_cols:
+            conn.execute("ALTER TABLE sync_runs ADD COLUMN message TEXT")
+        if "details" not in run_cols:
+            conn.execute("ALTER TABLE sync_runs ADD COLUMN details TEXT")
+
 
 @contextmanager
 def get_conn():
@@ -172,12 +183,20 @@ def start_run(link_id: int) -> int:
         return cur.lastrowid
 
 
-def finish_run(run_id: int, status: str, added: int, skipped: int, errors: list):
+def update_run_progress(run_id: int, current: int, total: int, message: str = ""):
     with get_conn() as conn:
         conn.execute(
-            """UPDATE sync_runs SET finished_at=?, status=?, added=?, skipped=?, errors=?
+            "UPDATE sync_runs SET current=?, total=?, message=? WHERE id=?",
+            (current, total, message, run_id),
+        )
+
+
+def finish_run(run_id: int, status: str, added: int, skipped: int, errors: list, details: list | None = None):
+    with get_conn() as conn:
+        conn.execute(
+            """UPDATE sync_runs SET finished_at=?, status=?, added=?, skipped=?, errors=?, details=?
                WHERE id=?""",
-            (time.time(), status, added, skipped, json.dumps(errors), run_id),
+            (time.time(), status, added, skipped, json.dumps(errors), json.dumps(details) if details is not None else None, run_id),
         )
 
 

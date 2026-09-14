@@ -46,41 +46,113 @@ async function loadLinks() {
   for (const link of links) {
     const row = document.createElement("div");
     row.className = "link-item";
+    row.style.flexDirection = "column";
+    row.style.alignItems = "stretch";
+    row.style.gap = "0.6rem";
+
+    const ytLinkBtn = link.ytmusic_playlist_id
+      ? `<a href="https://music.youtube.com/playlist?list=${encodeURIComponent(link.ytmusic_playlist_id)}" target="_blank" rel="noopener" class="btn small secondary" style="text-decoration:none;">Open in YT Music ↗</a>`
+      : "";
+
     row.innerHTML = `
-      <div>
-        <div class="pl-name">${escapeHtml(link.source_name)}</div>
-        <div class="pl-meta">${link.track_count} tracks</div>
-        <div class="run-status" id="run-status-${link.id}">—</div>
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div>
+          <div class="pl-name">${escapeHtml(link.source_name)}</div>
+          <div class="pl-meta">${link.track_count} tracks in CSV</div>
+          <div class="run-status" id="run-status-${link.id}">—</div>
+        </div>
+        <div>
+          ${ytLinkBtn}
+        </div>
       </div>
-      <button class="btn small secondary" data-link-id="${link.id}">Sync now</button>
+
+      <div id="progress-wrap-${link.id}" class="progress-wrap hidden">
+        <div class="progress-bar-container">
+          <div id="progress-bar-${link.id}" class="progress-bar"></div>
+        </div>
+        <div id="progress-status-${link.id}" class="progress-status">
+          <span>Starting sync…</span>
+          <span>0%</span>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn small" id="sync-btn-${link.id}">Sync now</button>
+        <button class="btn small outline" id="preview-btn-${link.id}">Pre-Sync Preview</button>
+        <button class="btn small outline" id="tracks-btn-${link.id}">View Tracks</button>
+        <button class="btn small outline hidden" id="inspect-btn-${link.id}">Inspect Last Run</button>
+      </div>
     `;
-    row.querySelector("button").addEventListener("click", () => triggerSync(link.id));
+
+    row.querySelector(`#sync-btn-${link.id}`).addEventListener("click", () => triggerSync(link.id));
+    row.querySelector(`#preview-btn-${link.id}`).addEventListener("click", () => openPreSyncPreview(link));
+    row.querySelector(`#tracks-btn-${link.id}`).addEventListener("click", () => openTrackPreview(link));
+
     container.appendChild(row);
     refreshRunStatus(link.id);
   }
 }
 
 async function triggerSync(linkId) {
+  const syncBtn = $(`sync-btn-${linkId}`);
+  if (syncBtn) {
+    syncBtn.disabled = true;
+    syncBtn.textContent = "Starting…";
+  }
   await api(`/api/links/${linkId}/sync`, { method: "POST" });
   pollRunStatus(linkId);
 }
 
 async function refreshRunStatus(linkId) {
   const runs = await api(`/api/links/${linkId}/runs`);
-  const el = $(`run-status-${linkId}`);
-  if (!el) return;
+  const statusEl = $(`run-status-${linkId}`);
+  const progressWrap = $(`progress-wrap-${linkId}`);
+  const progressBar = $(`progress-bar-${linkId}`);
+  const progressStatus = $(`progress-status-${linkId}`);
+  const syncBtn = $(`sync-btn-${linkId}`);
+  const inspectBtn = $(`inspect-btn-${linkId}`);
+
+  if (!statusEl) return;
   if (runs.length === 0) {
-    el.textContent = "Never synced";
+    statusEl.textContent = "Never synced";
+    if (progressWrap) progressWrap.classList.add("hidden");
+    if (inspectBtn) inspectBtn.classList.add("hidden");
+    if (syncBtn) { syncBtn.disabled = false; syncBtn.textContent = "Sync now"; }
     return;
   }
+
   const latest = runs[0];
-  el.className = `run-status ${latest.status}`;
+  statusEl.className = `run-status ${latest.status}`;
+
   if (latest.status === "running") {
-    el.textContent = "Syncing…";
-  } else if (latest.status === "done") {
-    el.textContent = `Last sync: ${latest.added} added, ${latest.skipped} skipped`;
+    if (syncBtn) { syncBtn.disabled = true; syncBtn.textContent = "Syncing…"; }
+    if (progressWrap) progressWrap.classList.remove("hidden");
+    const total = latest.total || 1;
+    const current = latest.current || 0;
+    const pct = Math.min(100, Math.round((current / total) * 100));
+    if (progressBar) progressBar.style.width = `${pct}%`;
+    if (progressStatus) {
+      progressStatus.innerHTML = `
+        <span>${escapeHtml(latest.message || `Processing track ${current}/${total}…`)}</span>
+        <span>${pct}%</span>
+      `;
+    }
+    statusEl.textContent = `Syncing… (${current}/${total})`;
+    if (inspectBtn) inspectBtn.classList.add("hidden");
   } else {
-    el.textContent = "Last sync failed — check backend logs";
+    if (progressWrap) progressWrap.classList.add("hidden");
+    if (syncBtn) { syncBtn.disabled = false; syncBtn.textContent = "Sync again"; }
+
+    if (latest.status === "done") {
+      statusEl.textContent = `Last sync: ${latest.added} added, ${latest.skipped} skipped`;
+    } else {
+      statusEl.textContent = "Last sync failed — check backend logs";
+    }
+
+    if (inspectBtn) {
+      inspectBtn.classList.remove("hidden");
+      inspectBtn.onclick = () => openRunInspection(latest);
+    }
   }
 }
 
@@ -89,15 +161,294 @@ function pollRunStatus(linkId) {
     const runs = await api(`/api/links/${linkId}/runs`);
     if (runs.length && runs[0].status !== "running") {
       clearInterval(interval);
+      loadLinks(); // Refresh link list in case playlist ID was updated
+    } else {
+      refreshRunStatus(linkId);
     }
-    refreshRunStatus(linkId);
-  }, 2000);
+  }, 1500);
 }
 
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
+// ---- Modal Management ----
+
+function openModal(title, subtitle, contentHtml, tabs = [], footerHtml = "") {
+  $("modal-title").textContent = title;
+  $("modal-subtitle").textContent = subtitle;
+  $("modal-content").innerHTML = contentHtml;
+
+  const tabsContainer = $("modal-tabs");
+  if (tabs.length > 0) {
+    tabsContainer.classList.remove("hidden");
+    tabsContainer.innerHTML = "";
+    tabs.forEach((tab, i) => {
+      const btn = document.createElement("button");
+      btn.className = `tab-btn ${i === 0 ? "active" : ""}`;
+      btn.textContent = tab.label;
+      btn.onclick = () => {
+        tabsContainer.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        tab.onClick();
+      };
+      tabsContainer.appendChild(btn);
+    });
+  } else {
+    tabsContainer.classList.add("hidden");
+  }
+
+  const footer = $("modal-footer");
+  if (footerHtml) {
+    footer.innerHTML = footerHtml;
+    footer.classList.remove("hidden");
+  } else {
+    footer.classList.add("hidden");
+  }
+
+  $("modal-backdrop").classList.remove("hidden");
+}
+
+function closeModal() {
+  $("modal-backdrop").classList.add("hidden");
+  $("modal-content").innerHTML = "";
+  $("modal-tabs").innerHTML = "";
+  $("modal-footer").innerHTML = "";
+}
+
+$("modal-close-btn").addEventListener("click", closeModal);
+$("modal-backdrop").addEventListener("click", (e) => {
+  if (e.target === $("modal-backdrop")) closeModal();
+});
+
+// ---- Track Preview (Feature 1) ----
+
+async function openTrackPreview(link) {
+  openModal(
+    `Tracks in "${link.source_name}"`,
+    `Loading parsed CSV tracks…`,
+    `<p class="muted">Loading tracks from local database…</p>`
+  );
+
+  try {
+    const tracks = await api(`/api/links/${link.id}/tracks`);
+    const subtitle = `${tracks.length} tracks parsed from CSV`;
+
+    let tableHtml = `
+      <table class="telemetry-table">
+        <thead>
+          <tr>
+            <th style="width: 40px;">#</th>
+            <th>Title</th>
+            <th>Artist</th>
+            <th>Album</th>
+            <th style="width: 70px; text-align: right;">Length</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    tracks.forEach((t, idx) => {
+      const durSec = t.duration_ms ? Math.round(t.duration_ms / 1000) : null;
+      const durStr = durSec ? `${Math.floor(durSec / 60)}:${String(durSec % 60).padStart(2, "0")}` : "—";
+      tableHtml += `
+        <tr>
+          <td style="color:#888;">${idx + 1}</td>
+          <td style="font-weight:600; color:#fff;">${escapeHtml(t.title)}</td>
+          <td style="color:#ccc;">${escapeHtml(t.artist)}</td>
+          <td style="color:#888;">${escapeHtml(t.album || "—")}</td>
+          <td style="text-align:right; font-family:monospace; color:#888;">${durStr}</td>
+        </tr>
+      `;
+    });
+
+    tableHtml += `</tbody></table>`;
+    openModal(`Tracks in "${link.source_name}"`, subtitle, tableHtml);
+  } catch (err) {
+    openModal(
+      `Tracks in "${link.source_name}"`,
+      "Error loading tracks",
+      `<p style="color:#ff6b6b;">Failed to load tracks: ${escapeHtml(err.message)}</p>`
+    );
+  }
+}
+
+// ---- Run Telemetry & Missing Tracks Inspection (Feature 2) ----
+
+function openRunInspection(run) {
+  let details = [];
+  if (run.details) {
+    details = typeof run.details === "string" ? JSON.parse(run.details) : run.details;
+  } else if (run.errors) {
+    // Fallback for legacy runs without detailed telemetry
+    const errs = typeof run.errors === "string" ? JSON.parse(run.errors) : run.errors;
+    details = errs.map((e) => ({
+      title: e.track || "Track",
+      artist: "",
+      status: "skipped",
+      reason: e.reason || "Skipped",
+    }));
+  }
+
+  const renderTable = (filter) => {
+    let filtered = details;
+    if (filter === "added") filtered = details.filter((d) => d.status === "added" || d.status === "matched");
+    if (filter === "skipped") filtered = details.filter((d) => d.status === "skipped" || d.status === "error");
+
+    if (filtered.length === 0) {
+      return `<p class="muted" style="padding: 1rem 0;">No items in this filter.</p>`;
+    }
+
+    let html = `
+      <table class="telemetry-table">
+        <thead>
+          <tr>
+            <th>Source Track</th>
+            <th>Matched YouTube Title & Channel</th>
+            <th style="width: 100px;">Status</th>
+            <th>Details / Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    filtered.forEach((item) => {
+      let badge = "";
+      if (item.status === "added" || item.status === "matched") {
+        badge = `<span class="badge success">Added</span>`;
+      } else if (item.category === "duplicate") {
+        badge = `<span class="badge neutral">Duplicate</span>`;
+      } else if (item.category === "threshold_miss" || item.category === "no_results") {
+        badge = `<span class="badge warning">Catalog Gap</span>`;
+      } else {
+        badge = `<span class="badge danger">Error</span>`;
+      }
+
+      const matchDesc = item.matched_title
+        ? `<strong>${escapeHtml(item.matched_title)}</strong>${item.matched_artist ? ` <span style="color:#888;">[${escapeHtml(item.matched_artist)}]</span>` : ""}`
+        : `<span style="color:#666;">—</span>`;
+
+      const reasonDesc = item.reason
+        ? `<span style="color:#aaa;">${escapeHtml(item.reason)}</span>`
+        : (item.score !== undefined ? `<span style="color:#888; font-family:monospace;">Score: ${item.score}</span>` : `<span style="color:#666;">Match confirmed</span>`);
+
+      html += `
+        <tr>
+          <td>
+            <div style="font-weight:600; color:#fff;">${escapeHtml(item.title)}</div>
+            <div style="color:#888; font-size:0.75rem;">${escapeHtml(item.artist)}</div>
+          </td>
+          <td>${matchDesc}</td>
+          <td>${badge}</td>
+          <td style="font-size:0.78rem;">${reasonDesc}</td>
+        </tr>
+      `;
+    });
+
+    html += `</tbody></table>`;
+    return html;
+  };
+
+  const addedCount = run.added;
+  const skippedCount = run.skipped;
+  const subtitle = `Run #${run.id} &bull; ${addedCount} added, ${skippedCount} skipped (Finished: ${new Date(run.finished_at * 1000).toLocaleTimeString()})`;
+
+  const tabs = [
+    { label: `All (${details.length || (addedCount + skippedCount)})`, onClick: () => { $("modal-content").innerHTML = renderTable("all"); } },
+    { label: `Added (${addedCount})`, onClick: () => { $("modal-content").innerHTML = renderTable("added"); } },
+    { label: `Skipped (${skippedCount})`, onClick: () => { $("modal-content").innerHTML = renderTable("skipped"); } },
+  ];
+
+  openModal(`Sync Run Telemetry`, subtitle, renderTable("all"), tabs);
+}
+
+// ---- Pre-Sync Match Preview & Approval (Feature 4) ----
+
+async function openPreSyncPreview(link) {
+  openModal(
+    `Pre-Sync Match Preview: "${link.source_name}"`,
+    "Searching YouTube Music candidates and evaluating confidence gates (0 Data API quota used)…",
+    `<div style="text-align:center; padding: 2rem 0;">
+       <p style="font-weight:600;">Evaluating matches against YouTube Music…</p>
+       <p class="muted" style="font-size:0.8rem; margin-top:0.4rem;">Testing core title similarity, canonical artists, and version tags without mutating any playlists.</p>
+     </div>`
+  );
+
+  try {
+    const preview = await api(`/api/links/${link.id}/preview`, { method: "POST" });
+    const subtitle = `Total: ${preview.total} &bull; Matched: ${preview.matched_count} &bull; Skipped/Gaps: ${preview.skipped_count}`;
+
+    const renderPreviewTable = (filter) => {
+      let items = preview.details || [];
+      if (filter === "matched") items = items.filter((d) => d.status === "matched");
+      if (filter === "skipped") items = items.filter((d) => d.status === "skipped" || d.status === "error");
+
+      let html = `
+        <table class="telemetry-table">
+          <thead>
+            <tr>
+              <th>Target Track</th>
+              <th>Proposed YouTube Candidate</th>
+              <th style="width: 90px;">Outcome</th>
+              <th style="width: 130px;">Score / Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      items.forEach((item) => {
+        const badge = item.status === "matched"
+          ? `<span class="badge success">Match</span>`
+          : `<span class="badge warning">Skip</span>`;
+
+        const cand = item.matched_title
+          ? `<strong>${escapeHtml(item.matched_title)}</strong>${item.matched_artist ? ` <span style="color:#888;">[${escapeHtml(item.matched_artist)}]</span>` : ""}`
+          : `<span style="color:#666;">No valid candidate</span>`;
+
+        const scoreInfo = item.status === "matched"
+          ? `<span style="font-family:monospace; color:#1ed760; font-weight:600;">Score: ${item.score}</span>`
+          : `<span style="color:#aaa; font-size:0.75rem;">${escapeHtml(item.reason || "Below threshold")}</span>`;
+
+        html += `
+          <tr>
+            <td>
+              <div style="font-weight:600; color:#fff;">${escapeHtml(item.title)}</div>
+              <div style="color:#888; font-size:0.75rem;">${escapeHtml(item.artist)}</div>
+            </td>
+            <td>${cand}</td>
+            <td>${badge}</td>
+            <td>${scoreInfo}</td>
+          </tr>
+        `;
+      });
+
+      html += `</tbody></table>`;
+      return html;
+    };
+
+    const tabs = [
+      { label: `All (${preview.total})`, onClick: () => { $("modal-content").innerHTML = renderPreviewTable("all"); } },
+      { label: `Matches (${preview.matched_count})`, onClick: () => { $("modal-content").innerHTML = renderPreviewTable("matched"); } },
+      { label: `Skipped (${preview.skipped_count})`, onClick: () => { $("modal-content").innerHTML = renderPreviewTable("skipped"); } },
+    ];
+
+    const footerHtml = `
+      <button class="btn secondary small" onclick="closeModal()">Cancel</button>
+      <button class="btn small" id="approve-sync-btn">Approve & Start Sync</button>
+    `;
+
+    openModal(`Pre-Sync Match Preview: "${link.source_name}"`, subtitle, renderPreviewTable("all"), tabs, footerHtml);
+
+    const approveBtn = $("approve-sync-btn");
+    if (approveBtn) {
+      approveBtn.onclick = () => {
+        closeModal();
+        triggerSync(link.id);
+      };
+    }
+  } catch (err) {
+    openModal(
+      `Pre-Sync Match Preview: "${link.source_name}"`,
+      "Preview error",
+      `<p style="color:#ff6b6b;">Failed to generate preview: ${escapeHtml(err.message)}</p>`
+    );
+  }
 }
 
 // ---- CSV import with drag-and-drop & auto-name ----
