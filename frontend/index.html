@@ -16,7 +16,10 @@
           <strong>YouTube Music</strong>
           <span id="ytmusic-status" class="status">checking…</span>
         </div>
-        <button id="ytmusic-connect-btn" class="btn">Connect YT Music</button>
+        <div style="display:flex; gap:0.5rem; align-items:center;">
+          <button type="button" id="setup-guide-btn" class="btn secondary small hidden" onclick="openSetupModal()">⚙️ Setup Credentials</button>
+          <button id="ytmusic-connect-btn" class="btn">Connect YT Music</button>
+        </div>
       </div>
       <div id="ytmusic-error" class="import-status error hidden" style="margin-top: 0.75rem;"></div>
       <div id="ytmusic-device-box" class="device-box hidden">

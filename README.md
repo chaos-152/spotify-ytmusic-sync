@@ -4,7 +4,7 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![YouTube Data API v3](https://img.shields.io/badge/API-YouTube%20Data%20v3-red.svg?logo=youtube&logoColor=white)](https://developers.google.com/youtube/v3)
-[![Test Suite: 47 Passed](https://img.shields.io/badge/Tests-47%20Passing-brightgreen.svg?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![Test Suite: 53 Passed](https://img.shields.io/badge/Tests-53%20Passing-brightgreen.svg?logo=pytest&logoColor=white)](https://docs.pytest.org/)
 [![SQLite](https://img.shields.io/badge/Storage-SQLite3-003B57.svg?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 
 **Author:** Sai Samanyu K (`chaos-152`)  
@@ -151,58 +151,82 @@ $$\text{Accept Candidate} \iff S_{\text{total}} \ge 35.0$$
 
 ## 5. Quickstart Guide
 
-### Prerequisites
-* Python 3.10+
-* Google Cloud Console account
+### Option A: One-Click Launcher (Recommended)
+Clone and run with automatic dependency resolution, environment setup, and browser launch:
 
-### Step 1: Clone the Repository
 ```bash
 git clone https://github.com/chaos-152/spotify-ytmusic-sync.git
 cd spotify-ytmusic-sync
+
+# On Linux or macOS:
+chmod +x run.sh && ./run.sh
+
+# On Windows:
+run.bat
+```
+* The launcher will automatically set up `./venv`, install packages, guide you through Google Cloud credentials if missing, and open your browser to `http://127.0.0.1:8000`.
+
+---
+
+### Option B: Interactive Setup Wizard
+If you want to configure your environment and test Google OAuth connectivity prior to running:
+
+```bash
+python -m backend.setup_wizard
 ```
 
-### Step 2: Environment Setup
+---
+
+### Option C: Docker Containerization
+Run without managing local Python environments:
+
 ```bash
-# Create and activate virtual environment
+# Ensure backend/.env contains your Google credentials, then:
+docker compose up -d
+```
+The application will be live at `http://localhost:8000` with persistent SQLite storage mounted at `./backend/app.db`.
+
+---
+
+### Option D: Manual Step-by-Step
+
+#### 1. Environment Setup
+```bash
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Configure environment variables
 cp .env.example backend/.env
 ```
 
-### Step 3: Configure Google Cloud OAuth Credentials
+#### 2. Configure Google Cloud OAuth Credentials
 1. Navigate to **[Google Cloud Console](https://console.cloud.google.com/)**.
-2. Create a new project and enable the **YouTube Data API v3** under **APIs & Services $\rightarrow$ Library**.
+2. Create a project and enable **YouTube Data API v3** under **APIs & Services $\rightarrow$ Library**.
 3. Under **OAuth consent screen**:
    - Select **External**.
-   - Add your email address under **Test users**.
+   - Add your Google email address under **Test users**.
 4. Under **Credentials $\rightarrow$ Create Credentials $\rightarrow$ OAuth client ID**:
-   - Select Application type: **TVs and Limited Input devices**.
-   - Copy the generated `Client ID` and `Client Secret` into `backend/.env`:
+   - Application type: **TVs and Limited Input devices**.
+   - Paste the generated `Client ID` and `Client Secret` into `backend/.env` (or configure directly in the web UI via **⚙️ Setup Credentials**):
 
 ```ini
 YTMUSIC_CLIENT_ID=your_client_id.apps.googleusercontent.com
 YTMUSIC_CLIENT_SECRET=your_client_secret
 ```
 
-### Step 4: Run the Application
+#### 3. Run the Application
 ```bash
 uvicorn backend.main:app --reload --port 8000
 ```
 Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)**:
-1. Click **Connect YT Music**, visit the Google confirmation URL, enter the code, and approve.
+1. Click **Connect YT Music**, open the Google verification URL, enter the code, and approve.
 2. Drag and drop your Spotify CSV playlist export (from [Exportify](https://exportify.net)).
-3. Click **Sync now** to trigger background synchronization.
+3. Preview matches with **Pre-Sync Preview** or click **Sync now**.
 
 ---
 
 ## 6. Automated Testing Suite
 
-The codebase features 100% passing test coverage across 47 automated unit and integration tests executing against isolated SQLite fixtures:
+The codebase features 100% passing test coverage across 53 automated unit and integration tests executing against isolated SQLite fixtures:
 
 ```bash
 pytest -v

@@ -1,4 +1,5 @@
 import io
+import os
 from unittest.mock import MagicMock
 from backend import ytmusic_auth, main
 
@@ -195,6 +196,22 @@ def test_preview_link_duplicate_detection(client, monkeypatch):
     assert data["details"][0]["status"] == "matched"
     assert data["details"][1]["status"] == "skipped"
     assert data["details"][1]["category"] == "duplicate"
+
+
+def test_setup_credentials_endpoint(client, tmp_path, monkeypatch):
+    res = client.post(
+        "/api/setup/credentials",
+        json={"client_id": "test_client_id_123", "client_secret": "test_client_secret_456"},
+    )
+    assert res.status_code == 200
+    assert res.json() == {"ok": True}
+    assert os.getenv("YTMUSIC_CLIENT_ID") == "test_client_id_123"
+    assert os.getenv("YTMUSIC_CLIENT_SECRET") == "test_client_secret_456"
+
+    # Test blank payload rejection
+    res_err = client.post("/api/setup/credentials", json={"client_id": "", "client_secret": ""})
+    assert res_err.status_code == 400
+
 
 
 

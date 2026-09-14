@@ -26,23 +26,111 @@ async function refreshStatus() {
   const ytBtn = $("ytmusic-connect-btn");
   const errBox = $("ytmusic-error");
 
+  const setupBtn = $("setup-guide-btn");
+
   if (status.ytmusic_connected) {
     ytStatus.textContent = "Connected";
     ytStatus.className = "status connected";
     ytBtn.classList.add("hidden");
+    if (setupBtn) setupBtn.classList.add("hidden");
     $("ytmusic-device-box").classList.add("hidden");
     if (errBox) errBox.classList.add("hidden");
   } else if (!status.ytmusic_configured) {
-    ytStatus.textContent = "Not configured (missing credentials in .env)";
+    ytStatus.textContent = "Not configured (missing credentials)";
     ytStatus.className = "status";
+    ytBtn.classList.add("hidden");
+    if (setupBtn) setupBtn.classList.remove("hidden");
   } else {
     ytStatus.textContent = "Ready to connect";
     ytStatus.className = "status";
+    ytBtn.classList.remove("hidden");
+    if (setupBtn) setupBtn.classList.add("hidden");
   }
 
   loadLinks();
   return status;
 }
+
+function openSetupModal() {
+  const content = `
+    <div style="font-size:0.86rem; line-height: 1.55; color: #ddd;">
+      <p style="margin-top:0;">To sync playlists with YouTube Music at zero cost, this tool uses Google's official OAuth 2.0 Device Authorization flow.</p>
+      
+      <div style="background:#161616; border:1px solid #333; border-radius:8px; padding:0.9rem 1.1rem; margin:1rem 0;">
+        <div style="font-weight:700; color:#fff; margin-bottom:0.5rem;">Google Cloud Console (Free 2-minute Setup):</div>
+        <ol style="margin:0; padding-left:1.2rem; color:#bbb;">
+          <li style="margin-bottom:0.35rem;">Open <a href="https://console.cloud.google.com/" target="_blank" rel="noopener" style="color:#1ed760; text-decoration:underline; font-weight:600;">Google Cloud Console ↗</a> and create a project.</li>
+          <li style="margin-bottom:0.35rem;">Under <strong>APIs & Services &rarr; Library</strong>, search for and enable <strong>YouTube Data API v3</strong>.</li>
+          <li style="margin-bottom:0.35rem;">Under <strong>OAuth consent screen</strong>, select <strong>External</strong>, and add your Google email under <strong>Test users</strong>.</li>
+          <li style="margin-bottom:0.35rem;">Under <strong>Credentials &rarr; Create Credentials &rarr; OAuth client ID</strong>, choose Application type: <strong>TVs and Limited Input devices</strong>.</li>
+        </ol>
+      </div>
+
+      <form id="setup-credentials-form" onsubmit="submitCredentials(event)">
+        <div style="margin-bottom:0.8rem;">
+          <label style="display:block; margin-bottom:0.3rem; font-weight:600; color:#fff;">Google Client ID:</label>
+          <input type="text" id="setup-client-id" placeholder="e.g. 123456789-xyz.apps.googleusercontent.com" required style="width:100%; box-sizing:border-box; background:#222; border:1px solid #444; border-radius:6px; color:#fff; padding:0.6rem 0.8rem;">
+        </div>
+
+        <div style="margin-bottom:1rem;">
+          <label style="display:block; margin-bottom:0.3rem; font-weight:600; color:#fff;">Google Client Secret:</label>
+          <input type="password" id="setup-client-secret" placeholder="e.g. GOCSPX-..." required style="width:100%; box-sizing:border-box; background:#222; border:1px solid #444; border-radius:6px; color:#fff; padding:0.6rem 0.8rem;">
+        </div>
+
+        <p id="setup-feedback" class="import-status muted" style="margin-bottom:1rem;"></p>
+
+        <div style="display:flex; justify-content:flex-end; gap:0.6rem;">
+          <button type="button" class="btn secondary small" onclick="closeModal()">Cancel</button>
+          <button type="submit" id="save-credentials-btn" class="btn small">Save & Configure</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  openModal("Google Cloud Credentials Setup", "Configure your OAuth Client ID and Secret directly", content);
+}
+window.openSetupModal = openSetupModal;
+
+async function submitCredentials(e) {
+  e.preventDefault();
+  const clientId = $("setup-client-id").value.trim();
+  const clientSecret = $("setup-client-secret").value.trim();
+  const feedback = $("setup-feedback");
+  const saveBtn = $("save-credentials-btn");
+
+  if (!clientId || !clientSecret) {
+    feedback.textContent = "Please provide both Client ID and Client Secret.";
+    feedback.className = "import-status error";
+    return;
+  }
+
+  saveBtn.disabled = true;
+  saveBtn.textContent = "Saving…";
+  feedback.textContent = "Saving credentials and initializing environment…";
+  feedback.className = "import-status muted";
+
+  try {
+    await api("/api/setup/credentials", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+    });
+
+    feedback.textContent = "✅ Credentials saved successfully! Refreshing…";
+    feedback.className = "import-status success";
+
+    setTimeout(() => {
+      closeModal();
+      refreshStatus();
+    }, 1200);
+  } catch (err) {
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save & Configure";
+    feedback.textContent = `Failed to save: ${err.message}`;
+    feedback.className = "import-status error";
+  }
+}
+window.submitCredentials = submitCredentials;
 
 
 async function loadLinks() {

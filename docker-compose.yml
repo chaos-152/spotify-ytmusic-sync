@@ -1,0 +1,12 @@
+services:
+  playlist-sync:
+    build: .
+    container_name: spotify-ytmusic-sync
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - backend/.env
+    volumes:
+      # Persist SQLite database across container rebuilds
+      - ./backend/app.db:/app/backend/app.db

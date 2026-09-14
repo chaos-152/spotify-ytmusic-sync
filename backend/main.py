@@ -23,7 +23,15 @@ DEFAULT_USER_ID = "me"  # single-user tool
 _pending_ytmusic_device_code: str | None = None
 
 
-# ---------- status ----------
+from pydantic import BaseModel
+
+
+class CredentialsPayload(BaseModel):
+    client_id: str
+    client_secret: str
+
+
+# ---------- status & setup ----------
 
 @app.get("/api/status")
 def status():
@@ -32,6 +40,25 @@ def status():
         "ytmusic_connected": ytmusic_auth.is_connected(),
         "ytmusic_configured": configured,
     }
+
+
+@app.post("/api/setup/credentials")
+def save_credentials(payload: CredentialsPayload):
+    client_id = payload.client_id.strip()
+    client_secret = payload.client_secret.strip()
+    if not client_id or not client_secret:
+        raise HTTPException(400, "Client ID and Client Secret cannot be empty")
+
+    env_file = Path(__file__).parent / ".env"
+    content = (
+        "# Google Cloud OAuth Credentials\n"
+        f"YTMUSIC_CLIENT_ID={client_id}\n"
+        f"YTMUSIC_CLIENT_SECRET={client_secret}\n"
+    )
+    env_file.write_text(content, encoding="utf-8")
+    os.environ["YTMUSIC_CLIENT_ID"] = client_id
+    os.environ["YTMUSIC_CLIENT_SECRET"] = client_secret
+    return {"ok": True}
 
 
 # ---------- YT Music auth (device code flow) ----------
