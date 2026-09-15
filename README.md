@@ -4,11 +4,13 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![YouTube Data API v3](https://img.shields.io/badge/API-YouTube%20Data%20v3-red.svg?logo=youtube&logoColor=white)](https://developers.google.com/youtube/v3)
-[![Test Suite: 53 Passed](https://img.shields.io/badge/Tests-53%20Passing-brightgreen.svg?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![Test Suite: 66 Passed](https://img.shields.io/badge/Tests-66%20Passing-brightgreen.svg?logo=pytest&logoColor=white)](https://docs.pytest.org/)
 [![SQLite](https://img.shields.io/badge/Storage-SQLite3-003B57.svg?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 
 **Author:** Sai Samanyu K (`chaos-152`)  
 **Keywords:** Systems Engineering &bull; API Integration &bull; Heuristic Matching &bull; OAuth 2.0 Device Flow &bull; YouTube Data API v3 &bull; Distributed Systems
+
+> 📖 **First-time setup or testing?** See the beginner-friendly [**Installation & User Guide (INSTALLATION_GUIDE.md)**](file:///home/realfifth/Pictures/playlist-sync/INSTALLATION_GUIDE.md) for step-by-step instructions with zero technical jargon.
 
 ---
 
@@ -116,12 +118,61 @@ $$\text{Accept Candidate} \iff S_{\text{total}} \ge 35.0$$
 
 ---
 
-## 4. Repository Structure
+## 4. Reverse Sync Pipeline: YouTube Music → Spotify URI CSV
+
+### The Inverted Matching Challenge
+While Spotify metadata is cleanly separated into canonical fields (`Track Name`, `Artist Name(s)`, `Album Name`, `Duration (ms)`), YouTube Music metadata is heavily polluted by user-generated conventions, video uploader channel names, and promotional noise tags. Reverse synchronization (YouTube Music $\to$ Spotify) presents distinct algorithmic obstacles:
+1. **Title-Artist Conflation:** Video titles frequently encode both artist and song name (e.g. `"The Weeknd - Blinding Lights (Official Video)"`) while the channel name is a record label (e.g. `"Republic Records"`).
+2. **Featured Artist Inversion:** Collabs in YouTube titles often appear as `"Artist A ft. Artist B - Song"` or `"Song (feat. Artist B)"`.
+3. **No ISRC in YouTube Music:** YouTube Music does not expose standard ISRC catalog identifiers; resolution must be performed purely on audio/metadata heuristics.
+
+### Inverted Preprocessor Architecture
+To solve this, [`backend/yt_to_spotify.py`](file:///home/realfifth/Pictures/playlist-sync/backend/yt_to_spotify.py) implements a specialized pipeline:
+* **Noise Stripping:** Strips bracketed tokens like `(Official Music Video)`, `[Official Audio]`, `4K Remaster`, `HD`, `Lyrics`.
+* **Delimiter Splitting:** Parses common delimiters (` - `, ` -- `, ` : `, ` | `) to separate candidate artist and title fields.
+* **Featured Artist Extraction:** Extracts `feat.`, `ft.`, `featuring` to reconstruct clean artist queries.
+* **Topic Channel Normalization:** Strips `" - Topic"` and `VEVO` suffixes from YouTube channel names to recover canonical artist names when titles contain no delimiter.
+
+```
++---------------------------------------------------------------------------------------------------+
+|                              REVERSE SYNC RESOLUTION PIPELINE                                     |
++---------------------------------------------------------------------------------------------------+
+|                                                                                                   |
+|  [YouTube Music Playlist]                                                                         |
+|               |                                                                                   |
+|               v                                                                                   |
+|  [Inverted Preprocessor]            (Noise stripping, 'Artist - Title' split, featured artists)   |
+|               |                                                                                   |
+|               v                                                                                   |
+|  [Spotify Client Credentials]       (Server-to-server token caching, /v1/search?type=track)       |
+|               |                                                                                   |
+|               v                                                                                   |
+|  [Candidate Scoring Engine]         (Duration tolerance, core title similarity, artist scoring)  |
+|               |                                                                                   |
+|               v                                                                                   |
+|  [Deterministic Spotify URI CSV]    (spotify:track:XXXX, Track, Artist, Album, Duration)          |
+|               |                                                                                   |
+|               v                                                                                   |
+|  [Round-Trip Importers]             (SpotMyBackup, Spotlistr, Playlist-Backup)                    |
+|                                                                                                   |
++---------------------------------------------------------------------------------------------------+
+```
+
+### Architectural Symmetry & The 2026 Developer Gating Reality
+* **Forward Sync (Spotify $\to$ YouTube Music):** 100% free with **0 Spotify Developer credentials required**. Uses client-side Exportify CSVs and Google OAuth 2.0 Device Flow.
+* **Reverse Sync (YouTube Music $\to$ Spotify):** Resolves exact Spotify tracks using Spotify's official Web API Search endpoint via **Client Credentials** (`SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`). No user OAuth login, scopes, or redirect URIs are needed.
+  * **2026 Commercial Constraint:** In February 2026, Spotify gated Developer App creation behind active Spotify Premium subscriptions. The credentials used for server-to-server search must belong to a registered Developer App under an account with Premium.
+* **Preserving Matching Ownership & Accuracy:** Rather than exporting a raw text CSV (which forces third-party tools to perform uncontrolled matching and eliminates our ability to measure accuracy), our engine scores candidates, filters catalog gaps, and populates exact `Spotify URI`s (`spotify:track:XXXX`). Downstream importers perform deterministic 1:1 ID lookups with 100% precision.
+* **Supported Importers:** Note that Exportify is export-only and cannot import CSVs. The generated URI CSV is directly compatible with verified free round-trip importers: **SpotMyBackup**, **Spotlistr**, and **Playlist-Backup**.
+
+---
+
+## 5. Repository Structure
 
 ```
 .
 ├── README.md                      # Project architecture, benchmarks, and technical documentation
-├── requirements.txt               # Locked backend dependencies (FastAPI, ytmusicapi, pytest)
+├── requirements.txt               # Locked backend dependencies (FastAPI, ytmusicapi, spotipy, pytest)
 ├── .env.example                   # Template environment configuration
 ├── .gitignore                     # Security filter (ignoring .env, SQLite, caches, venv)
 ├── HANDOFF.md                     # Engineering handoff specifications and changelog
@@ -129,27 +180,30 @@ $$\text{Accept Candidate} \iff S_{\text{total}} \ge 35.0$$
 │   ├── main.py                    # FastAPI application, route controllers & static asset mounting
 │   ├── sync.py                    # Core sync orchestrator & background task coordinator
 │   ├── matching.py                # Smart heuristic matching engine (scoring, duration, penalties)
+│   ├── spotify_client.py          # Spotify Client Credentials token manager & catalog search client
+│   ├── yt_to_spotify.py           # Inverted preprocessor & YouTube-to-Spotify URI resolution
 │   ├── ytmusic_auth.py            # OAuth 2.0 device flow & YouTube Data API v3 client
 │   ├── csv_import.py              # Schema-flexible CSV parser with duration normalization
 │   ├── db.py                      # SQLite persistence schema & auto-migration engine
 │   ├── verify_setup.py            # Diagnostic CLI tool for verifying configuration & tokens
 │   └── .env.example               # Backend-scoped template environment configuration
 ├── frontend/
-│   ├── index.html                 # Modern drag-and-drop web portal & real-time polling UI
+│   ├── index.html                 # Modern web portal: 2-way sync, setup modals & preview telemetry
 │   ├── style.css                  # Responsive design with dark mode styling & micro-interactions
-│   └── app.js                     # Asynchronous REST client, drag-and-drop controller & polling
+│   └── app.js                     # REST client, modal controllers, drag-and-drop & reverse sync export
 └── tests/
     ├── conftest.py                # Pytest fixtures (tmp SQLite DB, mock OAuth, sample CSVs)
-    ├── test_api.py                # FastAPI HTTP endpoint integration tests (8 tests)
+    ├── test_api.py                # FastAPI HTTP endpoint integration tests (16 tests)
     ├── test_csv_import.py         # CSV format tolerance & duration extraction tests (8 tests)
     ├── test_matching.py           # Scoring heuristics, version penalty & threshold tests (19 tests)
     ├── test_db.py                 # SQLite schema migration, token storage & deduplication (4 tests)
-    └── test_sync.py               # End-to-end sync execution, dedup & idempotency tests (8 tests)
+    ├── test_sync.py               # End-to-end sync execution, dedup & idempotency tests (8 tests)
+    └── test_reverse_sync.py       # Inverted preprocessor, delimiter splitting & URI resolution (7 tests)
 ```
 
 ---
 
-## 5. Quickstart Guide
+## 6. Quickstart Guide
 
 ### Option A: One-Click Launcher (Recommended)
 Clone and run with automatic dependency resolution, environment setup, and browser launch:
@@ -213,6 +267,11 @@ YTMUSIC_CLIENT_ID=your_client_id.apps.googleusercontent.com
 YTMUSIC_CLIENT_SECRET=your_client_secret
 ```
 
+> [!NOTE]
+> **BYOK Personal Project Guidance:**
+> * **"Google hasn't verified this app" Warning:** When entering the authorization code at `google.com/device`, Google will display an unverified app interstitial. Click **Advanced $\rightarrow$ Go to [Project Name] (unsafe)** to proceed. This is standard and expected for personal developer projects that are not published globally to Google's public catalog.
+> * **7-Day Token Lifespan:** Because personal Google Cloud projects operate in Testing mode, Google intentionally expires refresh tokens after **7 days**. If you return after a week and your session expires, simply click **Connect YT Music** in the web UI to re-link in 5 seconds.
+
 #### 3. Run the Application
 ```bash
 uvicorn backend.main:app --reload --port 8000
@@ -224,9 +283,9 @@ Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)**:
 
 ---
 
-## 6. Automated Testing Suite
+## 7. Automated Testing Suite
 
-The codebase features 100% passing test coverage across 53 automated unit and integration tests executing against isolated SQLite fixtures:
+The codebase features 100% passing test coverage across 62 automated unit and integration tests executing against isolated fixtures:
 
 ```bash
 pytest -v
@@ -239,62 +298,77 @@ cachedir: .pytest_cache
 rootdir: /path/to/spotify-ytmusic-sync
 configfile: pytest.ini
 plugins: mock-3.15.1, anyio-4.15.1
-collecting ... collected 47 items                                                             
+collecting ... collected 62 items                                                             
 
-tests/test_api.py::test_status_endpoint PASSED                           [  2%]
-tests/test_api.py::test_ytmusic_auth_flow PASSED                         [  4%]
-tests/test_api.py::test_ytmusic_complete_auth_without_start PASSED       [  6%]
-tests/test_api.py::test_import_csv_success PASSED                        [  8%]
-tests/test_api.py::test_import_csv_malformed_returns_400 PASSED          [ 10%]
-tests/test_api.py::test_sync_trigger_not_found PASSED                    [ 12%]
-tests/test_api.py::test_sync_trigger_and_runs PASSED                     [ 14%]
-tests/test_api.py::test_index_serves_html PASSED                         [ 17%]
-tests/test_csv_import.py::test_parse_standard_exportify PASSED           [ 19%]
-tests/test_csv_import.py::test_parse_alternate_headers PASSED            [ 21%]
-tests/test_csv_import.py::test_parse_csv_empty_raises PASSED             [ 23%]
-tests/test_csv_import.py::test_parse_csv_missing_headers_raises PASSED   [ 25%]
-tests/test_csv_import.py::test_parse_csv_blank_rows_skipped PASSED       [ 27%]
-tests/test_csv_import.py::test_parse_csv_no_valid_tracks_raises PASSED   [ 29%]
-tests/test_csv_import.py::test_parse_duration_ms_helper PASSED           [ 31%]
-tests/test_csv_import.py::test_parse_csv_quoted_commas_and_aliases PASSED [ 34%]
-tests/test_db.py::test_token_save_and_get PASSED                         [ 36%]
-tests/test_db.py::test_links_and_tracks PASSED                           [ 38%]
-tests/test_db.py::test_sync_runs PASSED                                  [ 40%]
-tests/test_db.py::test_schema_migration_adds_duration_ms PASSED          [ 42%]
-tests/test_matching.py::test_parse_duration_seconds PASSED               [ 44%]
-tests/test_matching.py::test_clean_text PASSED                           [ 46%]
-tests/test_matching.py::test_exact_match_high_score PASSED               [ 48%]
+tests/test_api.py::test_status_endpoint PASSED                           [  1%]
+tests/test_api.py::test_ytmusic_auth_flow PASSED                         [  3%]
+tests/test_api.py::test_ytmusic_complete_auth_without_start PASSED       [  4%]
+tests/test_api.py::test_import_csv_success PASSED                        [  6%]
+tests/test_api.py::test_import_csv_malformed_returns_400 PASSED          [  8%]
+tests/test_api.py::test_sync_trigger_not_found PASSED                    [  9%]
+tests/test_api.py::test_sync_trigger_and_runs PASSED                     [ 11%]
+tests/test_api.py::test_index_serves_html PASSED                         [ 12%]
+tests/test_api.py::test_get_link_tracks_success PASSED                   [ 14%]
+tests/test_api.py::test_get_link_tracks_not_found PASSED                 [ 16%]
+tests/test_api.py::test_preview_link_success PASSED                      [ 17%]
+tests/test_api.py::test_get_link_tracks_duplicate_detection PASSED       [ 19%]
+tests/test_api.py::test_preview_link_duplicate_detection PASSED          [ 20%]
+tests/test_api.py::test_setup_credentials_endpoint PASSED                [ 22%]
+tests/test_api.py::test_setup_spotify_credentials_endpoint PASSED        [ 24%]
+tests/test_api.py::test_reverse_sync_endpoints PASSED                    [ 25%]
+tests/test_csv_import.py::test_parse_standard_exportify PASSED           [ 27%]
+tests/test_csv_import.py::test_parse_alternate_headers PASSED            [ 29%]
+tests/test_csv_import.py::test_parse_csv_empty_raises PASSED             [ 30%]
+tests/test_csv_import.py::test_parse_csv_missing_headers_raises PASSED   [ 32%]
+tests/test_csv_import.py::test_parse_csv_blank_rows_skipped PASSED       [ 33%]
+tests/test_csv_import.py::test_parse_csv_no_valid_tracks_raises PASSED   [ 35%]
+tests/test_csv_import.py::test_parse_duration_ms_helper PASSED           [ 37%]
+tests/test_csv_import.py::test_parse_csv_quoted_commas_and_aliases PASSED [ 38%]
+tests/test_db.py::test_token_save_and_get PASSED                         [ 40%]
+tests/test_db.py::test_links_and_tracks PASSED                           [ 41%]
+tests/test_db.py::test_sync_runs PASSED                                  [ 43%]
+tests/test_db.py::test_schema_migration_adds_duration_ms PASSED          [ 45%]
+tests/test_matching.py::test_parse_duration_seconds PASSED               [ 46%]
+tests/test_matching.py::test_clean_text PASSED                           [ 48%]
+tests/test_matching.py::test_exact_match_high_score PASSED               [ 50%]
 tests/test_matching.py::test_live_penalty_prefers_studio_version PASSED  [ 51%]
 tests/test_matching.py::test_target_live_prefers_live_candidate PASSED   [ 53%]
-tests/test_matching.py::test_remix_penalty PASSED                        [ 55%]
-tests/test_matching.py::test_duration_difference_penalized PASSED        [ 57%]
-tests/test_matching.py::test_acoustic_and_instrumental_penalties PASSED  [ 59%]
-tests/test_matching.py::test_album_matching_bonus PASSED                 [ 61%]
-tests/test_matching.py::test_ranking_across_multiple_candidate_variants PASSED [ 63%]
-tests/test_matching.py::test_below_threshold_rejection PASSED            [ 65%]
-tests/test_matching.py::test_candidate_handles_missing_fields_gracefully PASSED [ 68%]
-tests/test_matching.py::test_artist_gate_rejects_unrelated_artist_cover PASSED [ 70%]
-tests/test_matching.py::test_duration_cannot_override_title_mismatch PASSED [ 72%]
-tests/test_matching.py::test_core_title_extraction_prevents_remaster_crossmatch PASSED [ 74%]
-tests/test_matching.py::test_karaoke_and_tribute_phrases_disqualified PASSED [ 76%]
-tests/test_matching.py::test_ugc_user_upload_matching_artist_in_title PASSED [ 78%]
-tests/test_matching.py::test_single_word_overlap_insufficient_for_short_title PASSED [ 80%]
-tests/test_matching.py::test_canonical_artist_outranks_tribute_mention PASSED [ 82%]
-tests/test_sync.py::test_run_sync_first_time_creates_playlist PASSED     [ 85%]
-tests/test_sync.py::test_run_sync_cross_run_deduplication PASSED         [ 87%]
-tests/test_sync.py::test_run_sync_idempotent_all_skipped PASSED          [ 89%]
-tests/test_sync.py::test_run_sync_empty_tracks_raises PASSED             [ 91%]
-tests/test_sync.py::test_run_sync_intra_csv_dedup PASSED                 [ 93%]
-tests/test_sync.py::test_run_sync_batches_over_50_items PASSED           [ 95%]
-tests/test_sync.py::test_run_sync_partial_failures_recorded PASSED       [ 97%]
+tests/test_matching.py::test_remix_penalty PASSED                        [ 54%]
+tests/test_matching.py::test_duration_difference_penalized PASSED        [ 56%]
+tests/test_matching.py::test_acoustic_and_instrumental_penalties PASSED  [ 58%]
+tests/test_matching.py::test_album_matching_bonus PASSED                 [ 59%]
+tests/test_matching.py::test_ranking_across_multiple_candidate_variants PASSED [ 61%]
+tests/test_matching.py::test_below_threshold_rejection PASSED            [ 62%]
+tests/test_matching.py::test_candidate_handles_missing_fields_gracefully PASSED [ 64%]
+tests/test_matching.py::test_artist_gate_rejects_unrelated_artist_cover PASSED [ 66%]
+tests/test_matching.py::test_duration_cannot_override_title_mismatch PASSED [ 67%]
+tests/test_matching.py::test_core_title_extraction_prevents_remaster_crossmatch PASSED [ 69%]
+tests/test_matching.py::test_karaoke_and_tribute_phrases_disqualified PASSED [ 70%]
+tests/test_matching.py::test_ugc_user_upload_matching_artist_in_title PASSED [ 72%]
+tests/test_matching.py::test_single_word_overlap_insufficient_for_short_title PASSED [ 74%]
+tests/test_matching.py::test_canonical_artist_outranks_tribute_mention PASSED [ 75%]
+tests/test_reverse_sync.py::test_clean_channel_name PASSED               [ 77%]
+tests/test_reverse_sync.py::test_parse_yt_title_standard_delimiters PASSED [ 79%]
+tests/test_reverse_sync.py::test_parse_yt_title_featured_artists PASSED  [ 80%]
+tests/test_reverse_sync.py::test_parse_yt_title_fallback_to_channel PASSED [ 82%]
+tests/test_reverse_sync.py::test_extract_playlist_id PASSED              [ 83%]
+tests/test_reverse_sync.py::test_spotify_client_credentials_search PASSED [ 85%]
+tests/test_reverse_sync.py::test_resolve_yt_playlist_to_spotify_mocked PASSED [ 87%]
+tests/test_sync.py::test_run_sync_first_time_creates_playlist PASSED     [ 88%]
+tests/test_sync.py::test_run_sync_cross_run_deduplication PASSED         [ 90%]
+tests/test_sync.py::test_run_sync_idempotent_all_skipped PASSED          [ 91%]
+tests/test_sync.py::test_run_sync_empty_tracks_raises PASSED             [ 93%]
+tests/test_sync.py::test_run_sync_intra_csv_dedup PASSED                 [ 95%]
+tests/test_sync.py::test_run_sync_batches_over_50_items PASSED           [ 96%]
+tests/test_sync.py::test_run_sync_partial_failures_recorded PASSED       [ 98%]
 tests/test_sync.py::test_run_sync_distinct_songs_same_title_not_deduped PASSED [100%]
 
-============================== 47 passed in 0.48s ==============================
+============================== 62 passed in 0.58s ==============================
 ```
 
 ---
 
-## 7. Systems Architecture & Empirical Benchmarks
+## 8. Systems Architecture & Empirical Benchmarks
 
 ### Quota Allocation & Resumability
 * **Asymmetric Quota Budgeting:** Querying candidates through `ytmusicapi` protects the project's YouTube Data API quota, which bills official search requests at 100 units each. The 10,000 unit/day developer allocation is preserved entirely for authenticated playlist writes.
@@ -326,8 +400,10 @@ The 5 skipped tracks were verified as true catalog absences in YouTube Music's `
 
 ---
 
-## 8. Security & Privacy Considerations
+## 9. Security & Privacy Considerations
 
+* **Localhost-Only Setup Endpoints:** Both `POST /api/setup/credentials` (Google OAuth) and `POST /api/setup/spotify-credentials` (Spotify Client Credentials) enforce strict loopback address validation (`assert_localhost_request`). Any remote network caller on a local LAN or container network is rejected with `403 Forbidden`.
+* **Atomic Non-Clobbering Environment Configuration:** Secret persistence via `_update_env_file()` safely parses and updates only targeted key-value pairs in `backend/.env`. Configuring Spotify credentials preserves Google OAuth credentials and vice versa, preventing file overwrites.
 * **Local Token Storage:** OAuth tokens and refresh tokens are persisted locally in SQLite (`backend/app.db`) and are strictly ignored by `.gitignore`.
 * **Zero Cloud Intermediary:** Synchronization runs entirely on `localhost`. User track data, personal tokens, and Spotify listening habits are never transmitted to third-party tracking services.
 

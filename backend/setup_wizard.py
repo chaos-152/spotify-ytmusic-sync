@@ -1,5 +1,5 @@
 """
-Interactive CLI Setup Wizard for Spotify -> YouTube Music Sync.
+Interactive CLI Setup Wizard for Spotify ⇄ YouTube Music Sync.
 Guides new users through configuring Google Cloud OAuth credentials,
 initializing the SQLite database, and validating system readiness.
 
@@ -27,7 +27,7 @@ RESET = "\033[0m"
 
 def print_banner():
     print(f"\n{CYAN}{BOLD}" + "=" * 65)
-    print("   Spotify -> YouTube Music Sync: Interactive Setup Wizard   ")
+    print("   Spotify ⇄ YT Music Sync: Interactive Setup Wizard   ")
     print("=" * 65 + f"{RESET}\n")
     print("Welcome! This tool will help you set up your environment in under 2 minutes.\n")
 
@@ -87,25 +87,24 @@ def prompt_credentials():
 
 
 def save_env(client_id: str, client_secret: str):
-    env_content = (
-        "# Google Cloud OAuth 2.0 Credentials (TVs and Limited Input devices)\n"
-        "# Automatically configured via setup_wizard.py\n"
-        f"YTMUSIC_CLIENT_ID={client_id}\n"
-        f"YTMUSIC_CLIENT_SECRET={client_secret}\n"
-    )
+    updates = {
+        "YTMUSIC_CLIENT_ID": client_id,
+        "YTMUSIC_CLIENT_SECRET": client_secret,
+    }
 
-    ENV_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(ENV_PATH, "w", encoding="utf-8") as f:
-        f.write(env_content)
-
-    # Also save root .env for convenient root execution
-    with open(ROOT_ENV_PATH, "w", encoding="utf-8") as f:
-        f.write(env_content)
+    for env_path in (ENV_PATH, ROOT_ENV_PATH):
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        existing_lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+        updated_keys = set(updates.keys())
+        new_lines = [line for line in existing_lines if line.split("=", 1)[0].strip() not in updated_keys]
+        for key, val in updates.items():
+            new_lines.append(f"{key}={val}")
+        env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
     # Export to current process environment
     os.environ["YTMUSIC_CLIENT_ID"] = client_id
     os.environ["YTMUSIC_CLIENT_SECRET"] = client_secret
-    print(f"{GREEN}✓ Credentials saved to {ENV_PATH.name}{RESET}")
+    print(f"{GREEN}✓ Google credentials saved to {ENV_PATH.name} (existing Spotify credentials preserved){RESET}")
 
 
 def check_network():

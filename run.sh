@@ -8,7 +8,7 @@ set -e
 cd "$(dirname "$0")"
 
 echo "============================================================"
-echo "   Spotify -> YouTube Music Sync Launcher"
+echo "   Spotify ⇄ YT Music Sync Launcher"
 echo "============================================================"
 
 # 1. Check Python 3

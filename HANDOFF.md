@@ -1,86 +1,75 @@
-# Handoff notes — Spotify → YT Music Sync
+# Handoff Notes — Spotify ⇄ YT Music Sync
 
-Context for picking this project back up (written for a fresh Claude Code
-session with no prior conversation history).
+Context for picking this project back up (written for any fresh developer or reviewer).
 
 ## What this is
 
-A personal tool that one-way syncs a Spotify playlist into YouTube Music.
-Built for a resume project (targeting PM/APM applications), so the
-decision-making behind choices matters as much as the code — see
-"Why CSV, not the Spotify API" below, that's the one worth understanding
-before touching auth.
+A high-precision, bidirectional playlist synchronization and migration tool between Spotify and YouTube Music.
+Built for a portfolio/resume project, balancing architectural elegance with real-world API cost and gating constraints.
+
+## Architecture & Flows
+
+### 1. Forward Sync: Spotify CSV → YouTube Music
+* **100% Free Tier, Zero Spotify Developer Keys Required.**
+* In February 2026, Spotify gated the Web API developer app creation behind Spotify Premium. Rather than forcing users into paid subscriptions or dealing with a 5-test-user allowlist, forward sync consumes client-side CSV exports from [Exportify](https://exportify.net).
+* High-precision matching engine with 11-factor candidate scoring: Levenshtein distance, duration difference penalties, live/acoustic/remix bias matching, album verification, karaoke/tribute disqualification, and channel normalization.
+* Idempotent synchronization with multi-layer deduplication (intra-CSV, in-memory, and cross-run remote YouTube playlist diffing).
+
+### 2. Reverse Sync: YouTube Music → Spotify URI CSV
+* Inverted Preprocessor extracts canonical song titles, strips YouTube noise (`[Official Video]`, `HD`, etc.), resolves multi-artist delimiters (` - `, ` -- `, ` : `, ` | `), and handles Topic/VEVO channels.
+* BYOK (Bring Your Own Key) Spotify Catalog Search using the **Client Credentials Flow** (machine-to-machine, no user OAuth redirects or private account access). Bypasses Spotify's 5-user allowlist cap.
+* Outputs standardized CSVs populated with verified `spotify:track:...` URIs and confidence scores for 1-click round-trip import via tools like SpotMyBackup, Spotlistr, or Playlist-Backup.
+* **Graceful Fallback:** Users without Spotify developer credentials can also export a clean Raw YouTube tracklist CSV.
 
 ## Stack
 
-- Backend: FastAPI + plain sqlite3 (no ORM), Python 3.11+
-- Frontend: vanilla JS/HTML/CSS, no build step, served as static files by FastAPI
-- No test suite yet — verification so far has been manual, via FastAPI's
-  `TestClient` in one-off scripts, not committed test files
+- **Backend:** FastAPI + SQLite (`backend/app.db`), Python 3.10+
+- **Frontend:** Vanilla JS/HTML5/CSS3, responsive UI with mobile viewport support, dark theme, zero framework dependencies
+- **Security:** Localhost-only guard (`127.0.0.1`, `::1`) on credential-saving endpoints to prevent unauthorized network writes
+- **Test Suite:** 64 automated tests covering API endpoints, CSV parsing, SQLite schema migrations, matching heuristics, reverse sync preprocessors, and synchronization idempotency
 
-## Why CSV, not the Spotify API
-
-Originally built against Spotify's Web API with standard OAuth. In
-February 2026 Spotify started requiring a Premium subscription to use the
-Web API in Developer Mode (confirmed via Spotify's own Feb 2026 migration
-guide and contemporaneous TechCrunch coverage) — apps also got capped at 5
-test users. Rather than depend on a subscription that could lapse, the
-Spotify half was ripped out and replaced with CSV import: the user exports
-their playlist via exportify.net (runs client-side against their own
-Spotify login, not the gated API) and uploads the CSV here.
-
-**Practical implication:** there is no live "is the source playlist still
-in sync" signal. Re-syncing means the user re-exports and re-uploads
-manually. Don't try to "fix" this by re-adding Spotify OAuth without
-re-litigating that tradeoff first.
-
-## File map
+## File Map
 
 ```
 backend/
-  main.py         FastAPI routes — status, YT Music auth, CSV import, sync trigger
-  db.py           sqlite3 schema + queries (tokens, playlist_links, tracks, sync_runs)
-  csv_import.py   Exportify CSV parser (handles a few header-name variants)
-  ytmusic_auth.py YT Music OAuth (device-code flow via ytmusicapi) + client helper
-  sync.py         orchestrates: create/reuse YT playlist, search+add tracks
+  main.py             FastAPI application routes, security guards, reverse sync API
+  db.py               SQLite schema + atomic operations (tokens, playlist_links, tracks, sync_runs)
+  matching.py         11-factor fuzzy scoring and candidate ranking engine
+  sync.py             Forward sync orchestrator with batching and cross-run deduplication
+  ytmusic_auth.py     Google OAuth 2.0 Device Flow helper + YouTubeSyncClient
+  csv_import.py       Robust Exportify CSV parser (handles alias headers, quoted commas)
+  spotify_client.py   Spotify Client Credentials token manager + catalog search client
+  yt_to_spotify.py    Inverted preprocessor & YouTube -> Spotify URI resolver
+  setup_wizard.py     Interactive CLI setup wizard with non-clobbering .env merge
+  verify_setup.py     Environment verification utility
+
 frontend/
-  index.html, app.js, style.css   no framework, talks to the FastAPI JSON routes
-README.md         setup instructions (env vars, install, run)
+  index.html          Responsive single-page UI (viewport meta, accessibility)
+  app.js              Client controller (auth polling timeout, error handling, clipboard fallback)
+  style.css           Dark theme design system with animations and progress bars
+
+tests/
+  conftest.py         Pytest fixtures (isolated SQLite, FastAPI TestClient, mocked env)
+  test_api.py         HTTP API endpoint tests & security guard validation
+  test_csv_import.py  CSV parser unit tests with malformed/alternate headers
+  test_db.py          Database schema and CRUD operations tests
+  test_matching.py    Fuzzy matching scoring and edge-case unit tests
+  test_reverse_sync.py Reverse sync preprocessor and candidate scoring tests
+  test_sync.py        End-to-end forward sync orchestration tests
 ```
 
-## Data flow
+## Running the Project
 
-1. User uploads CSV via `POST /api/import-csv` (multipart: `name`, `file`)
-2. `csv_import.parse_csv` extracts `{title, artist, album}` per row
-3. `db.upsert_link` + `db.replace_tracks` store them, keyed by playlist name
-   (re-uploading the same name wipes and replaces its tracks)
-4. `POST /api/links/{id}/sync` runs as a FastAPI `BackgroundTask` →
-   `sync.run_sync`: creates a YT Music playlist if this link doesn't have
-   one yet, searches each track by `"{title} {artist}"`, adds the first hit
-5. Frontend polls `GET /api/links/{id}/runs` every 2s while syncing
+```bash
+# Automated launcher (Linux/macOS):
+chmod +x run.sh && ./run.sh
 
-## Known gaps — the actual next-work list
+# Windows:
+run.bat
 
-Ranked roughly by value for a resume bullet vs. effort:
+# Docker:
+docker compose up -d
 
-1. **Track matching is naive.** First search result only, no scoring
-   against duration/album/explicit-version. Worth adding a scored match
-   (e.g. compare duration_ms if Exportify's CSV includes it, penalize
-   "live"/"remix" mismatches) — this is the single highest-leverage fix for
-   sync quality.
-2. **No cross-run dedup.** Re-syncing a playlist re-adds everything.
-   `ytmusicapi`'s `duplicates=False` only dedups within one call. Fix:
-   before adding, fetch the YT playlist's existing video IDs and diff.
-3. **No scheduling/automation** for re-import — by design, see above, but
-   a "watch a folder for a new CSV" mode would be a reasonable v2.
-4. One-way only, single-user (`DEFAULT_USER_ID = "me"` hardcoded) — fine
-   for personal use, flag if this ever needs to serve more than one person.
-
-## Testing so far
-
-Verified via `fastapi.testclient.TestClient` in throwaway scripts (not
-committed): CSV import round-trip with a real sample Exportify-format CSV
-(correct track count, correct parsed fields), and rejection of a
-malformed CSV (missing title/artist columns → clean 400, not a crash).
-The YT Music device-code auth flow and the actual sync-to-YT-Music path
-have **not** been run against real credentials — that's untested end-to-end.
+# Run Tests:
+./venv/bin/pytest tests/ -v
+```

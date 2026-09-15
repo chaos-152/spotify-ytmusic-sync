@@ -59,6 +59,19 @@ def verify():
         print(f"  ❌ Failed to connect to YouTube Music with stored token: {e}")
         return False
 
+    # 5. Spotify Credentials Check (optional)
+    print("\n5. Spotify Search API (Reverse Sync):")
+    sp_id = os.getenv("SPOTIFY_CLIENT_ID", "")
+    sp_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "")
+    if sp_id and sp_secret and not sp_id.startswith("your_"):
+        print(f"  ✅ SPOTIFY_CLIENT_ID: {sp_id[:12]}...")
+        print(f"  ✅ SPOTIFY_CLIENT_SECRET: {'*' * 8}")
+    else:
+        print("  ⚠️ Spotify credentials not configured (optional — only needed for Reverse Sync).")
+        print("     Configure via the web UI (⚙️ Spotify Credentials) or add to backend/.env:")
+        print("     SPOTIFY_CLIENT_ID=your_client_id")
+        print("     SPOTIFY_CLIENT_SECRET=your_client_secret")
+
     print("\n🎉 Setup verified successfully!")
     return True
 

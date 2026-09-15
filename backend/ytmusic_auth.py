@@ -86,8 +86,9 @@ def is_connected(user_id: str = DEFAULT_USER_ID) -> bool:
     token = db.get_token(user_id, "ytmusic")
     if not token or "access_token" not in token:
         return False
-    # If token has a refresh_token, it can be renewed automatically
-    if token.get("refresh_token"):
+    # If token has a refresh_token, it can be renewed automatically only if Google credentials are configured
+    has_creds = bool(os.getenv("YTMUSIC_CLIENT_ID") and os.getenv("YTMUSIC_CLIENT_SECRET"))
+    if token.get("refresh_token") and has_creds:
         return True
     # Otherwise check if the current access token is still unexpired (with 60s buffer)
     return token.get("expires_at", 0) > time.time() + 60
@@ -183,32 +184,40 @@ class YouTubeSyncClient:
 def get_client(user_id: str = DEFAULT_USER_ID) -> YouTubeSyncClient:
     token = db.get_token(user_id, "ytmusic")
     if not token or "access_token" not in token:
-        raise RuntimeError("YouTube Music not connected yet — visit /auth/ytmusic/login first")
+        raise RuntimeError("YouTube Music not connected yet — please click 'Connect YT Music' first.")
 
     now = time.time()
     expires_at = token.get("expires_at", 0)
-    creds = _credentials()
 
     # Check if token is close to expiry
     if expires_at < now + 60:
         refresh_tok = token.get("refresh_token")
-        if refresh_tok:
-            try:
-                refreshed = creds.refresh_token(refresh_tok)
-                if "access_token" in refreshed:
-                    token["access_token"] = refreshed["access_token"]
-                    token["expires_in"] = refreshed.get("expires_in", 3599)
-                    token["expires_at"] = time.time() + token["expires_in"]
-                    if "refresh_token" in refreshed:
-                        token["refresh_token"] = refreshed["refresh_token"]
-                    token["filepath"] = None
-                    db.save_token(user_id, "ytmusic", token)
-            except Exception as e:
-                raise RuntimeError(f"Failed to refresh YouTube Music token: {e}. Please reconnect in the UI.")
-        else:
+        if not refresh_tok:
             raise RuntimeError(
                 "Your YouTube Music session has expired (access tokens expire after 1 hour). "
                 "Please click 'Connect YT Music' to reconnect."
+            )
+        try:
+            creds = _credentials()
+        except ValueError as e:
+            raise RuntimeError(
+                "YouTube credentials not configured. Please click '⚙️ Setup Google Credentials' first."
+            ) from e
+
+        try:
+            refreshed = creds.refresh_token(refresh_tok)
+            if "access_token" in refreshed:
+                token["access_token"] = refreshed["access_token"]
+                token["expires_in"] = refreshed.get("expires_in", 3599)
+                token["expires_at"] = time.time() + token["expires_in"]
+                if "refresh_token" in refreshed:
+                    token["refresh_token"] = refreshed["refresh_token"]
+                token["filepath"] = None
+                db.save_token(user_id, "ytmusic", token)
+        except Exception as e:
+            raise RuntimeError(
+                f"Your YouTube Music session has expired (Google Testing-mode refresh tokens expire every 7 days). "
+                f"Please click 'Connect YT Music' in the UI to reconnect: {e}"
             )
 
     return YouTubeSyncClient(access_token=token["access_token"])
@@ -448,7 +457,17 @@ def preview_matches(
     Searches and scores candidates for each track without modifying any playlist.
     Identifies catalog gaps, confidence misses, and playlist/batch duplicates.
     """
-    yt = get_client(user_id)
+    try:
+        yt = get_client(user_id)
+    except Exception:
+        # Dry-run match preview does not mutate playlists and does not require OAuth.
+        # Fallback to an unauthenticated YTMusic client so preview works even before connecting.
+        class _PreviewFallbackClient:
+            def __init__(self):
+                self._yt = YTMusic()
+            def search(self, *args, **kwargs):
+                return self._yt.search(*args, **kwargs)
+        yt = _PreviewFallbackClient()
     matched_count = 0
     skipped_count = 0
     duplicate_count = 0

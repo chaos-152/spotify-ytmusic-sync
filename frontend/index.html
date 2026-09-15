@@ -2,78 +2,154 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Spotify -> YT Music Sync</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spotify → YT Music Sync</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <div class="wrap">
-    <h1>Spotify → YT Music Sync</h1>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
+      <h1 style="margin:0;">Spotify ⇄ YT Music Sync</h1>
+      <button type="button" class="btn secondary small" id="manual-btn" onclick="openManualModal()" style="display:inline-flex; align-items:center; gap:0.4rem;">
+        <span>📖</span> Instruction Manual
+      </button>
+    </div>
 
-    <section class="card">
-      <h2>1. Connect YouTube Music</h2>
-      <div class="connect-row">
-        <div>
-          <strong>YouTube Music</strong>
+    <!-- Directional Tabs Navigation -->
+    <nav class="direction-nav" aria-label="Migration Direction">
+      <button type="button" class="tab-btn-main active theme-yt" id="tab-btn-move-to-yt">
+        <span class="tab-icon">▶</span> Move to YT Music
+      </button>
+      <button type="button" class="tab-btn-main theme-sp" id="tab-btn-move-to-sp">
+        <span class="tab-icon">🟢</span> Move to Spotify
+      </button>
+    </nav>
+
+    <!-- VIEW 1: Move to YouTube Music (Forward Sync) -->
+    <div id="view-move-to-yt" class="tab-view">
+      <section class="card card-yt">
+        <div class="card-header-row">
+          <h2>1. YouTube Music Connection</h2>
           <span id="ytmusic-status" class="status">checking…</span>
         </div>
-        <div style="display:flex; gap:0.5rem; align-items:center;">
-          <button type="button" id="setup-guide-btn" class="btn secondary small hidden" onclick="openSetupModal()">⚙️ Setup Credentials</button>
-          <button id="ytmusic-connect-btn" class="btn">Connect YT Music</button>
-        </div>
-      </div>
-      <div id="ytmusic-error" class="import-status error hidden" style="margin-top: 0.75rem;"></div>
-      <div id="ytmusic-device-box" class="device-box hidden">
-        <p>1. Open this link: <a id="ytmusic-verify-url" target="_blank" rel="noopener"></a></p>
-        <p>2. Enter this code when prompted:</p>
-        <div class="code-row">
-          <div id="ytmusic-user-code" class="code"></div>
-          <button type="button" id="copy-code-btn" class="btn small" title="Copy code">📋 Copy</button>
-        </div>
-        <p id="ytmusic-poll-status" class="muted">Waiting for you to enter the code on Google…</p>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>2. Import a Spotify playlist</h2>
-      <p class="muted">
-        Export your playlist as a CSV at
-        <a href="https://exportify.net" target="_blank" rel="noopener">exportify.net</a>
-        (runs in your browser, uses your own Spotify login — no developer
-        account or Premium needed), then drop it here.
-      </p>
-
-      <form id="import-form">
-        <div id="dropzone" class="dropzone">
-          <input type="file" id="playlist-csv" accept=".csv" class="dropzone-input" required>
-          <div id="dropzone-content" class="dropzone-content">
-            <svg class="dropzone-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="17 8 12 3 7 8"></polyline>
-              <line x1="12" y1="3" x2="12" y2="15"></line>
-            </svg>
-            <p class="dropzone-title">Drag & drop your Exportify <code>.csv</code> here, or <span class="dropzone-browse">browse</span></p>
-            <p class="dropzone-hint">Automatically sets playlist name from filename</p>
-          </div>
-          <div id="file-info" class="file-info hidden">
-            <span class="file-icon">📄</span>
-            <span id="file-name" class="file-name"></span>
-            <span id="file-size" class="file-size"></span>
-            <button type="button" id="remove-file-btn" class="remove-file-btn" title="Choose another file">×</button>
+        <div class="connect-row">
+          <p class="muted" style="margin:0;">Connect your YouTube Music account via Google's free OAuth device authorization flow.</p>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <button type="button" id="setup-guide-btn" class="btn secondary small hidden" onclick="openSetupModal()">⚙️ Setup Google Credentials</button>
+            <button id="ytmusic-connect-btn" class="btn btn-yt">Connect YT Music</button>
           </div>
         </div>
-
-        <div class="import-controls">
-          <input type="text" id="playlist-name" placeholder="Playlist name" required>
-          <button type="submit" id="import-submit-btn" class="btn">Import</button>
+        <div id="ytmusic-error" class="import-status error hidden" style="margin-top: 0.75rem;"></div>
+        <div id="ytmusic-device-box" class="device-box hidden">
+          <p>1. Open this link: <a id="ytmusic-verify-url" target="_blank" rel="noopener"></a></p>
+          <p>2. Enter this code when prompted:</p>
+          <div class="code-row">
+            <div id="ytmusic-user-code" class="code"></div>
+            <button type="button" id="copy-code-btn" class="btn small" title="Copy code">📋 Copy</button>
+          </div>
+          <p id="ytmusic-poll-status" class="muted">Waiting for you to enter the code on Google…</p>
         </div>
-      </form>
-      <p id="import-status" class="import-status muted"></p>
-    </section>
+      </section>
 
-    <section id="links-section" class="card">
-      <h2>3. Your imported playlists</h2>
-      <div id="links-list"></div>
-    </section>
+      <section class="card card-yt">
+        <h2>2. Import Spotify Playlist CSV</h2>
+        <p class="muted">
+          Export your playlist as a CSV at
+          <a href="https://exportify.net" target="_blank" rel="noopener">exportify.net</a>
+          (runs in your browser, uses your own Spotify login — no developer
+          account or Premium needed), then drop it here.
+        </p>
+
+        <form id="import-form">
+          <div id="dropzone" class="dropzone">
+            <input type="file" id="playlist-csv" accept=".csv" class="dropzone-input" required>
+            <div id="dropzone-content" class="dropzone-content">
+              <svg class="dropzone-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              <p class="dropzone-title">Drag & drop your Exportify <code>.csv</code> here, or <span class="dropzone-browse">browse</span></p>
+              <p class="dropzone-hint">Automatically sets playlist name from filename</p>
+            </div>
+            <div id="file-info" class="file-info hidden">
+              <span class="file-icon">📄</span>
+              <span id="file-name" class="file-name"></span>
+              <span id="file-size" class="file-size"></span>
+              <button type="button" id="remove-file-btn" class="remove-file-btn" title="Choose another file">×</button>
+            </div>
+          </div>
+
+          <div class="import-controls">
+            <input type="text" id="playlist-name" placeholder="Playlist name" required>
+            <button type="submit" id="import-submit-btn" class="btn btn-yt">Import</button>
+          </div>
+        </form>
+        <p id="import-status" class="import-status muted"></p>
+      </section>
+
+      <section id="links-section" class="card card-yt">
+        <h2>3. Your Synced Playlists</h2>
+        <div id="links-list"></div>
+      </section>
+    </div>
+
+    <!-- VIEW 2: Move to Spotify (Reverse Sync) -->
+    <div id="view-move-to-sp" class="tab-view hidden">
+      <section class="card card-sp">
+        <h2>1. Spotify Service Connections</h2>
+        <div class="connect-row">
+          <div>
+            <strong>Spotify Catalog Search API</strong>
+            <span id="spotify-status" class="status">checking…</span>
+            <p class="muted" style="margin:0.2rem 0 0 0; font-size:0.8rem;">Required for high-precision song resolution via Client Credentials.</p>
+          </div>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <button type="button" id="spotify-setup-btn" class="btn secondary small" onclick="openSpotifySetupModal()">⚙️ Spotify Credentials</button>
+          </div>
+        </div>
+
+        <div class="connect-row" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #2a2a2a;">
+          <div>
+            <strong>Spotify Account (Direct Write)</strong>
+            <span id="spotify-user-status" class="status">checking…</span>
+            <p class="muted" style="margin:0.2rem 0 0 0; font-size:0.8rem;">Optional: Allows 1-click direct playlist creation in your Spotify library with zero CSV files.</p>
+          </div>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <a href="/api/spotify/login" id="spotify-login-btn" class="btn btn-sp small" style="text-decoration:none;">Connect Spotify Account</a>
+            <button type="button" id="spotify-logout-btn" class="btn secondary small hidden" onclick="disconnectSpotifyUser()">Disconnect</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card card-sp">
+        <h2>2. Transfer YouTube Music Playlist to Spotify</h2>
+        <p class="muted">
+          Paste any YouTube Music playlist URL. Our Inverted Preprocessor cleans YouTube metadata and matches exact Spotify tracks.
+        </p>
+
+        <div style="display:flex; flex-direction:column; gap:0.75rem; margin-top:0.75rem;">
+          <input type="text" id="reverse-playlist-input" placeholder="YouTube Music playlist URL or ID (e.g. https://music.youtube.com/playlist?list=...)" style="width:100%; box-sizing:border-box; background:#2a2a2a; border:1px solid #3a3a3a; border-radius:6px; color:var(--text); padding:0.6rem 0.8rem; font-size:0.9rem;">
+          
+          <div style="display:flex; flex-wrap:wrap; gap:0.6rem; align-items:center;">
+            <button type="button" id="reverse-direct-btn" class="btn btn-sp">✨ Sync Directly to Spotify</button>
+            <button type="button" id="reverse-preview-btn" class="btn secondary">🔍 Preview Matches</button>
+            <button type="button" id="reverse-export-btn" class="btn outline">📥 Export Spotify CSV</button>
+            <span id="reverse-status" class="muted" style="margin-left:0.5rem; font-size:0.85rem;"></span>
+          </div>
+
+          <div id="reverse-direct-result" class="device-box hidden" style="text-align:left; border-color:#1ed760; background:#0c2414; margin-top:0.8rem;">
+            <h4 style="margin:0 0 0.4rem 0; color:#1ed760; display:flex; align-items:center; gap:0.4rem;">
+              <span>✅</span> Successfully Created in Spotify!
+            </h4>
+            <p id="reverse-direct-meta" style="margin:0.2rem 0; color:#ddd; font-size:0.88rem;"></p>
+            <div style="margin-top:0.6rem;">
+              <a id="reverse-direct-link" target="_blank" rel="noopener" class="btn btn-sp small" style="text-decoration:none;">Open Playlist in Spotify ↗</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
 
     <!-- Modal for Tracks Preview, Match Preview, and Run Inspection -->
     <div id="modal-backdrop" class="modal-backdrop hidden">

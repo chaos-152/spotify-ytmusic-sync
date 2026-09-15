@@ -19,6 +19,39 @@ async function api(path, opts = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+// ---- Directional Tab Navigation ----
+function switchTab(tabName) {
+  const ytTabBtn = $("tab-btn-move-to-yt");
+  const spTabBtn = $("tab-btn-move-to-sp");
+  const ytView = $("view-move-to-yt");
+  const spView = $("view-move-to-sp");
+
+  if (!ytTabBtn || !spTabBtn || !ytView || !spView) return;
+
+  if (tabName === "move-to-spotify") {
+    ytTabBtn.classList.remove("active");
+    spTabBtn.classList.add("active");
+    ytView.classList.add("hidden");
+    spView.classList.remove("hidden");
+    history.replaceState(null, "", "?tab=move-to-spotify");
+  } else {
+    spTabBtn.classList.remove("active");
+    ytTabBtn.classList.add("active");
+    spView.classList.add("hidden");
+    ytView.classList.remove("hidden");
+    history.replaceState(null, "", "?tab=move-to-yt");
+  }
+}
+window.switchTab = switchTab;
+
+if ($("tab-btn-move-to-yt")) {
+  $("tab-btn-move-to-yt").addEventListener("click", () => switchTab("move-to-yt"));
+}
+if ($("tab-btn-move-to-sp")) {
+  $("tab-btn-move-to-sp").addEventListener("click", () => switchTab("move-to-spotify"));
+}
+
+
 async function refreshStatus() {
   const status = await api("/api/status");
 
@@ -47,6 +80,34 @@ async function refreshStatus() {
     if (setupBtn) setupBtn.classList.add("hidden");
   }
 
+  const spStatus = $("spotify-status");
+  if (spStatus) {
+    if (status.spotify_configured) {
+      spStatus.textContent = "Configured (Catalog Search Active)";
+      spStatus.className = "status connected";
+    } else {
+      spStatus.textContent = "Not configured (Client ID/Secret missing)";
+      spStatus.className = "status";
+    }
+  }
+
+  const spUserStatus = $("spotify-user-status");
+  const spLoginBtn = $("spotify-login-btn");
+  const spLogoutBtn = $("spotify-logout-btn");
+  if (spUserStatus) {
+    if (status.spotify_user_connected) {
+      spUserStatus.textContent = `Connected as ${status.spotify_user_name || "Spotify User"}`;
+      spUserStatus.className = "status connected";
+      if (spLoginBtn) spLoginBtn.classList.add("hidden");
+      if (spLogoutBtn) spLogoutBtn.classList.remove("hidden");
+    } else {
+      spUserStatus.textContent = "Not connected";
+      spUserStatus.className = "status";
+      if (spLoginBtn) spLoginBtn.classList.remove("hidden");
+      if (spLogoutBtn) spLogoutBtn.classList.add("hidden");
+    }
+  }
+
   loadLinks();
   return status;
 }
@@ -64,6 +125,14 @@ function openSetupModal() {
           <li style="margin-bottom:0.35rem;">Under <strong>OAuth consent screen</strong>, select <strong>External</strong>, and add your Google email under <strong>Test users</strong>.</li>
           <li style="margin-bottom:0.35rem;">Under <strong>Credentials &rarr; Create Credentials &rarr; OAuth client ID</strong>, choose Application type: <strong>TVs and Limited Input devices</strong>.</li>
         </ol>
+
+        <div style="margin-top:0.75rem; padding:0.6rem 0.8rem; background:#221b10; border:1px solid #734f18; border-radius:6px; font-size:0.8rem; color:#f0c674;">
+          <strong>💡 Good to know for BYOK personal projects:</strong>
+          <ul style="margin:0.3rem 0 0 0; padding-left:1.1rem; line-height:1.45;">
+            <li><strong>"Google hasn't verified this app" warning:</strong> When you enter the code at <code>google.com/device</code>, Google will display an "unverified app" screen. Click <strong>Advanced &rarr; Go to (unsafe)</strong> to proceed — this is normal and expected for private personal developer projects.</li>
+            <li><strong>7-Day Token Lifespan:</strong> Google expires Testing-mode OAuth refresh tokens after <strong>7 days</strong>. If you return after a week and sync fails, simply click <em>Connect YT Music</em> to refresh your session in 5 seconds.</li>
+          </ul>
+        </div>
       </div>
 
       <form id="setup-credentials-form" onsubmit="submitCredentials(event)">
@@ -131,11 +200,103 @@ async function submitCredentials(e) {
   }
 }
 window.submitCredentials = submitCredentials;
+ 
+function openSpotifySetupModal() {
+  const content = `
+    <div style="font-size:0.86rem; line-height: 1.55; color: #ddd;">
+      <p style="margin-top:0;">To resolve YouTube tracks to exact Spotify URIs (<code>spotify:track:XXXX</code>), our Inverted Preprocessor queries the Spotify catalog using official Client Credentials.</p>
+      
+      <div style="background:#161616; border:1px solid #333; border-radius:8px; padding:0.9rem 1.1rem; margin:1rem 0;">
+        <div style="font-weight:700; color:#fff; margin-bottom:0.5rem;">Spotify Developer Dashboard Setup:</div>
+        <ol style="margin:0; padding-left:1.2rem; color:#bbb;">
+          <li style="margin-bottom:0.35rem;">Log into <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener" style="color:#1ed760; text-decoration:underline; font-weight:600;">Spotify Developer Dashboard ↗</a>.</li>
+          <li style="margin-bottom:0.35rem;">Click <strong>Create App</strong>. Enter any app name (e.g. <em>Playlist Sync</em>) and description.</li>
+          <li style="margin-bottom:0.35rem;">Select <strong>Web API</strong> as the API you plan to use.</li>
+          <li style="margin-bottom:0.35rem;">Under <strong>Redirect URIs</strong>, add: <code style="color:#1ed760; background:#222; padding:2px 5px; border-radius:4px;">http://127.0.0.1:8000/api/spotify/callback</code><br><span style="font-size:0.78rem; color:#aaa;">(⚠️ Spotify requires the numeric IP literal <code>127.0.0.1</code> — <code>localhost</code> is rejected by Spotify).</span></li>
+          <li style="margin-bottom:0.35rem;">Go to <strong>Settings</strong> and copy your <strong>Client ID</strong> and <strong>Client Secret</strong>.</li>
+        </ol>
+        <div style="margin-top:0.6rem; font-size:0.78rem; color:#ffbb33; line-height:1.4;">
+          ⚠️ <strong>2026 Developer Requirement:</strong> Spotify requires an active Spotify Premium subscription to register an app on the developer dashboard.
+        </div>
+      </div>
+
+      <form id="setup-spotify-form" onsubmit="submitSpotifyCredentials(event)">
+        <div style="margin-bottom:0.8rem;">
+          <label style="display:block; margin-bottom:0.3rem; font-weight:600; color:#fff;">Spotify Client ID:</label>
+          <input type="text" id="setup-spotify-client-id" placeholder="e.g. 4a2b8c9d0e..." required style="width:100%; box-sizing:border-box; background:#222; border:1px solid #444; border-radius:6px; color:#fff; padding:0.6rem 0.8rem;">
+        </div>
+
+        <div style="margin-bottom:1rem;">
+          <label style="display:block; margin-bottom:0.3rem; font-weight:600; color:#fff;">Spotify Client Secret:</label>
+          <input type="password" id="setup-spotify-client-secret" placeholder="e.g. f1e2d3c4b5..." required style="width:100%; box-sizing:border-box; background:#222; border:1px solid #444; border-radius:6px; color:#fff; padding:0.6rem 0.8rem;">
+        </div>
+
+        <p id="setup-spotify-feedback" class="import-status muted" style="margin-bottom:1rem;"></p>
+
+        <div style="display:flex; justify-content:flex-end; gap:0.6rem;">
+          <button type="button" class="btn secondary small" onclick="closeModal()">Cancel</button>
+          <button type="submit" id="save-spotify-btn" class="btn small">Save &amp; Configure</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  openModal("Spotify Developer Credentials Setup", "Configure Client Credentials for YouTube → Spotify URI Matching", content);
+}
+window.openSpotifySetupModal = openSpotifySetupModal;
+
+async function submitSpotifyCredentials(e) {
+  e.preventDefault();
+  const clientId = $("setup-spotify-client-id").value.trim();
+  const clientSecret = $("setup-spotify-client-secret").value.trim();
+  const feedback = $("setup-spotify-feedback");
+  const saveBtn = $("save-spotify-btn");
+
+  if (!clientId || !clientSecret) {
+    feedback.textContent = "Please fill in both fields.";
+    feedback.className = "import-status error";
+    return;
+  }
+
+  saveBtn.disabled = true;
+  saveBtn.textContent = "Saving…";
+  feedback.textContent = "Saving credentials…";
+  feedback.className = "import-status muted";
+
+  try {
+    await api("/api/setup/spotify-credentials", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+    });
+
+    feedback.textContent = "✅ Spotify credentials saved successfully!";
+    feedback.className = "import-status success";
+
+    setTimeout(() => {
+      closeModal();
+      refreshStatus();
+    }, 1200);
+  } catch (err) {
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save & Configure";
+    feedback.textContent = `Failed to save: ${err.message}`;
+    feedback.className = "import-status error";
+  }
+}
+window.submitSpotifyCredentials = submitSpotifyCredentials;
 
 
 async function loadLinks() {
   const container = $("links-list");
-  const links = await api("/api/links");
+  if (!container) return;
+  let links;
+  try {
+    links = await api("/api/links");
+  } catch (err) {
+    container.innerHTML = `<span class="import-status error">Failed to load playlists: ${escapeHtml(err.message)}</span>`;
+    return;
+  }
   container.innerHTML = "";
   if (links.length === 0) {
     container.textContent = "No playlists imported yet — use the form above.";
@@ -244,7 +405,12 @@ async function refreshRunStatus(linkId) {
     if (latest.status === "done") {
       statusEl.textContent = `Last sync: ${latest.added} added, ${latest.skipped} skipped`;
     } else {
-      statusEl.textContent = "Last sync failed — check backend logs";
+      let errDetail = "check backend logs";
+      if (latest.errors && latest.errors.length) {
+        const r = latest.errors[0].reason;
+        if (r) errDetail = r;
+      }
+      statusEl.textContent = `Last sync failed: ${errDetail}`;
     }
 
     if (inspectBtn) {
@@ -255,13 +421,25 @@ async function refreshRunStatus(linkId) {
 }
 
 function pollRunStatus(linkId) {
+  let attempts = 0;
+  const maxAttempts = 120; // 3 minutes max (120 * 1.5s)
   const interval = setInterval(async () => {
-    const runs = await api(`/api/links/${linkId}/runs`);
-    if (runs.length && runs[0].status !== "running") {
+    attempts++;
+    if (attempts > maxAttempts) {
       clearInterval(interval);
-      loadLinks(); // Refresh link list in case playlist ID was updated
-    } else {
       refreshRunStatus(linkId);
+      return;
+    }
+    try {
+      const runs = await api(`/api/links/${linkId}/runs`);
+      if (runs.length && runs[0].status !== "running") {
+        clearInterval(interval);
+        loadLinks(); // Refresh link list in case playlist ID was updated
+      } else {
+        refreshRunStatus(linkId);
+      }
+    } catch (e) {
+      console.error(`Polling runs for link ${linkId} failed:`, e);
     }
   }, 1500);
 }
@@ -781,11 +959,16 @@ $("import-form").addEventListener("submit", async (e) => {
 
 $("copy-code-btn").addEventListener("click", () => {
   const code = $("ytmusic-user-code").textContent;
-  if (code) {
+  if (!code) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(code).then(() => {
       $("copy-code-btn").textContent = "✅ Copied!";
       setTimeout(() => { $("copy-code-btn").textContent = "📋 Copy"; }, 2000);
+    }).catch(() => {
+      window.prompt("Copy this code manually:", code);
     });
+  } else {
+    window.prompt("Copy this code manually:", code);
   }
 });
 
@@ -809,9 +992,23 @@ $("ytmusic-connect-btn").addEventListener("click", async () => {
 
     const pollStatus = $("ytmusic-poll-status");
     let attempts = 0;
+    const maxAttempts = 60; // 60 × 5s = 5 minutes timeout
 
     const poll = setInterval(async () => {
       attempts++;
+
+      if (attempts > maxAttempts) {
+        clearInterval(poll);
+        btn.disabled = false;
+        btn.textContent = "Connect YT Music";
+        box.classList.add("hidden");
+        if (errBox) {
+          errBox.textContent = "Authorization timed out after 5 minutes. Please try again.";
+          errBox.classList.remove("hidden");
+        }
+        return;
+      }
+
       try {
         await api("/api/ytmusic/complete-auth", { method: "POST" });
         clearInterval(poll);
@@ -819,9 +1016,29 @@ $("ytmusic-connect-btn").addEventListener("click", async () => {
         pollStatus.style.color = "#1DB954";
         refreshStatus();
       } catch (e) {
-        // 428 = not approved yet, keep polling
-        if (pollStatus) {
-          pollStatus.textContent = `Waiting for you to enter the code on Google… (attempt ${attempts})`;
+        // Distinguish "not approved yet" (expected) from real server errors
+        const isStillPending = e.message && (
+          e.message.includes("428") ||
+          e.message.toLowerCase().includes("pending") ||
+          e.message.toLowerCase().includes("not approved") ||
+          e.message.toLowerCase().includes("authorization_pending")
+        );
+
+        if (isStillPending) {
+          if (pollStatus) {
+            const remaining = Math.ceil((maxAttempts - attempts) * (device.interval || 5) / 60);
+            pollStatus.textContent = `Waiting for you to enter the code on Google… (${remaining}min remaining)`;
+          }
+        } else {
+          // Real error — stop polling
+          clearInterval(poll);
+          btn.disabled = false;
+          btn.textContent = "Connect YT Music";
+          box.classList.add("hidden");
+          if (errBox) {
+            errBox.textContent = `Authorization failed: ${e.message}`;
+            errBox.classList.remove("hidden");
+          }
         }
       }
     }, (device.interval || 5) * 1000);
@@ -835,5 +1052,431 @@ $("ytmusic-connect-btn").addEventListener("click", async () => {
   }
 });
 
-refreshStatus();
+// ---- Reverse Sync: YT Music -> Spotify URI CSV ----
+
+async function openReverseSyncPreview(playlistRef) {
+  const ref = (playlistRef || $("reverse-playlist-input")?.value || "").trim();
+  const statusEl = $("reverse-status");
+  if (!ref) {
+    if (statusEl) {
+      statusEl.textContent = "Please enter a YouTube Music playlist URL or ID.";
+      statusEl.className = "import-status error";
+    }
+    return;
+  }
+  if (statusEl) {
+    statusEl.textContent = "";
+  }
+
+  openModal(
+    "Reverse Sync Match Preview",
+    "Fetching YouTube playlist items and matching against Spotify catalog...",
+    `<div style="text-align:center; padding: 2rem 0;">
+       <p style="font-weight:600;">Resolving YouTube tracks to Spotify catalog URIs…</p>
+       <p class="muted" style="font-size:0.8rem; margin-top:0.4rem;">Applying inverted title preprocessor, delimiter extraction, and candidate scoring.</p>
+     </div>`
+  );
+
+  try {
+    const result = await api("/api/reverse-sync/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playlist: ref }),
+    });
+
+    const items = result.details || [];
+    const matchedCount = result.matched_count;
+    const gapCount = result.gap_count;
+    const total = result.total_tracks;
+    const precision = result.match_precision;
+
+    let noticeHtml = "";
+    if (gapCount > 0) {
+      noticeHtml = `
+        <div style="background: rgba(255, 170, 0, 0.08); border: 1px solid rgba(255, 170, 0, 0.28); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.82rem; color: #ffbb33; line-height: 1.45;">
+          ℹ️ <strong>Catalog Gap Detection:</strong> Detected <strong>${gapCount} YouTube track${gapCount > 1 ? "s" : ""}</strong> that did not clear the confidence threshold or were missing on Spotify. The export CSV will strictly include the <strong>${matchedCount} verified Spotify URIs</strong> to guarantee deterministic 1:1 importing.
+        </div>
+      `;
+    }
+
+    const subtitle = `Playlist: "${result.playlist_title}" &bull; Total: ${total} &bull; Matched URIs: ${matchedCount} (${precision}%) &bull; Gaps: ${gapCount}`;
+
+    const renderTable = (filter) => {
+      let filtered = items;
+      if (filter === "matched") filtered = items.filter((d) => d.status === "matched");
+      if (filter === "gaps") filtered = items.filter((d) => d.status !== "matched");
+
+      if (filtered.length === 0) {
+        return `${noticeHtml}<p class="muted" style="padding: 1.5rem 0; text-align:center;">No tracks under the "${filter}" filter.</p>`;
+      }
+
+      let html = noticeHtml + `
+        <table class="telemetry-table">
+          <thead>
+            <tr>
+              <th>YouTube Source Track</th>
+              <th>Resolved Spotify Track &amp; URI</th>
+              <th style="width: 100px;">Status</th>
+              <th style="width: 130px;">Match Score</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      filtered.forEach((item) => {
+        let badge = "";
+        let spotifyDisplay = "";
+        const matchedTitle = item.matched_title || item.spotify_title || "";
+        const matchedArtist = item.matched_artist || item.spotify_artist || "";
+        const sourceTitle = item.yt_title || item.clean_title || item.source_title || "Unknown Title";
+        const sourceArtist = item.yt_artist || item.clean_artist || (item.status === "matched" ? matchedArtist : "Unknown Artist");
+        const scoreVal = (item.confidence !== undefined && item.confidence !== null)
+          ? item.confidence
+          : (item.score !== undefined ? item.score : null);
+
+        if (item.status === "matched") {
+          badge = `<span class="badge success">Resolved URI</span>`;
+          spotifyDisplay = `
+            <div style="font-weight:600; color:#fff;">${escapeHtml(matchedTitle)}</div>
+            <div style="color:#888; font-size:0.75rem;">${escapeHtml(matchedArtist)}</div>
+            <code style="color:#1ed760; font-size:0.72rem; background:#181818; padding:2px 4px; border-radius:3px;">${escapeHtml(item.spotify_uri || "")}</code>
+          `;
+        } else {
+          badge = `<span class="badge warning">Catalog Gap</span>`;
+          spotifyDisplay = `<span style="color:#666;">No Spotify candidate met threshold</span>`;
+        }
+
+        const scoreDisplay = item.status === "matched"
+          ? `<span style="font-family:monospace; color:#1ed760; font-weight:600;">Score: ${scoreVal !== null ? scoreVal : "—"}</span>`
+          : `<span style="color:#aaa; font-size:0.75rem;">Below 0.80</span>`;
+
+        html += `
+          <tr>
+            <td>
+              <div style="font-weight:600; color:#fff;">${escapeHtml(sourceTitle)}</div>
+              <div style="color:#888; font-size:0.75rem;">${escapeHtml(sourceArtist)}</div>
+            </td>
+            <td>${spotifyDisplay}</td>
+            <td>${badge}</td>
+            <td>${scoreDisplay}</td>
+          </tr>
+        `;
+      });
+
+      html += `</tbody></table>`;
+      return html;
+    };
+
+    const tabs = [
+      { label: `All (${total})`, onClick: () => { $("modal-content").innerHTML = renderTable("all"); } },
+      { label: `Matched Spotify URIs (${matchedCount})`, onClick: () => { $("modal-content").innerHTML = renderTable("matched"); } },
+      { label: `Catalog Gaps (${gapCount})`, onClick: () => { $("modal-content").innerHTML = renderTable("gaps"); } },
+    ];
+
+    const footerHtml = `
+      <button class="btn secondary small" onclick="closeModal()">Close</button>
+      <button class="btn small" id="reverse-modal-export-btn" ${matchedCount === 0 ? "disabled" : ""}>
+        📥 Download Spotify URI CSV (${matchedCount} tracks)
+      </button>
+    `;
+
+    openModal(`Reverse Sync Preview: "${result.playlist_title}"`, subtitle, renderTable("all"), tabs, footerHtml);
+
+    const modalExportBtn = $("reverse-modal-export-btn");
+    if (modalExportBtn && matchedCount > 0) {
+      modalExportBtn.onclick = () => {
+        exportReverseSyncCsv(ref, result.playlist_title);
+      };
+    }
+  } catch (err) {
+    openModal(
+      "Reverse Sync Preview Error",
+      "Failed to resolve playlist",
+      `<p style="color:#ff6b6b;">Error: ${escapeHtml(err.message)}</p>`
+    );
+  }
+}
+window.openReverseSyncPreview = openReverseSyncPreview;
+
+async function exportReverseSyncCsv(playlistRef, playlistTitle) {
+  const ref = (playlistRef || $("reverse-playlist-input")?.value || "").trim();
+  const statusEl = $("reverse-status");
+  const exportBtn = $("reverse-export-btn");
+
+  if (!ref) {
+    if (statusEl) {
+      statusEl.textContent = "Please enter a YouTube Music playlist URL or ID.";
+      statusEl.className = "import-status error";
+    }
+    return;
+  }
+
+  if (statusEl) {
+    statusEl.textContent = "Generating Spotify URI CSV…";
+    statusEl.className = "import-status muted";
+  }
+  if (exportBtn) exportBtn.disabled = true;
+
+  try {
+    const res = await fetch("/api/reverse-sync/export-csv", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playlist: ref }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(errText);
+    }
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+
+    const disposition = res.headers.get("Content-Disposition");
+    let filename = "playlist_spotify_uris.csv";
+    if (disposition && disposition.indexOf("filename=") !== -1) {
+      const match = disposition.match(/filename="?([^";]+)"?/);
+      if (match && match[1]) filename = match[1];
+    } else if (playlistTitle) {
+      const safe = playlistTitle.replace(/[^a-zA-Z0-9_\- ]/g, "").trim();
+      filename = `${safe || "playlist"}_spotify_uris.csv`;
+    }
+
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+
+    if (statusEl) {
+      statusEl.textContent = `✅ Downloaded "${filename}"!`;
+      statusEl.className = "import-status success";
+    }
+  } catch (err) {
+    if (statusEl) {
+      statusEl.textContent = `Export failed: ${err.message}`;
+      statusEl.className = "import-status error";
+    }
+  } finally {
+    if (exportBtn) exportBtn.disabled = false;
+  }
+}
+window.exportReverseSyncCsv = exportReverseSyncCsv;
+
+
+// ---- Direct-to-Spotify Library Sync ----
+
+async function triggerDirectSpotifySync() {
+  const input = $("reverse-playlist-input");
+  const statusEl = $("reverse-status");
+  const directBtn = $("reverse-direct-btn");
+  const resultBox = $("reverse-direct-result");
+  const resultMeta = $("reverse-direct-meta");
+  const resultLink = $("reverse-direct-link");
+
+  const playlist = input ? input.value.trim() : "";
+  if (!playlist) {
+    if (statusEl) {
+      statusEl.textContent = "Please enter a YouTube Music playlist URL or ID.";
+      statusEl.className = "import-status error";
+    }
+    return;
+  }
+
+  if (resultBox) resultBox.classList.add("hidden");
+  if (directBtn) {
+    directBtn.disabled = true;
+    directBtn.textContent = "✨ Syncing directly to Spotify…";
+  }
+  if (statusEl) {
+    statusEl.textContent = "Resolving tracks and creating Spotify playlist…";
+    statusEl.className = "import-status muted";
+  }
+
+  try {
+    const data = await api("/api/reverse-sync/direct-sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playlist }),
+    });
+
+    if (statusEl) {
+      statusEl.textContent = `✅ Successfully created "${data.playlist_name}"!`;
+      statusEl.className = "import-status success";
+    }
+
+    if (resultBox && resultMeta && resultLink) {
+      resultMeta.textContent = `Added ${data.added_count} of ${data.total_tracks} tracks into your Spotify account (${data.precision_pct}% match precision).`;
+      resultLink.href = data.playlist_url;
+      resultBox.classList.remove("hidden");
+    }
+  } catch (err) {
+    if (statusEl) {
+      if (err.message && err.message.includes("401")) {
+        statusEl.textContent = "⚠️ Please connect your Spotify account first (click 'Connect Spotify Account' above).";
+      } else {
+        statusEl.textContent = `Direct sync failed: ${err.message}`;
+      }
+      statusEl.className = "import-status error";
+    }
+  } finally {
+    if (directBtn) {
+      directBtn.disabled = false;
+      directBtn.textContent = "✨ Sync Directly to Spotify";
+    }
+  }
+}
+window.triggerDirectSpotifySync = triggerDirectSpotifySync;
+
+
+async function disconnectSpotifyUser() {
+  try {
+    await api("/api/spotify/logout", { method: "POST" });
+    refreshStatus();
+  } catch (e) {
+    console.error("Failed to disconnect Spotify account:", e);
+  }
+}
+window.disconnectSpotifyUser = disconnectSpotifyUser;
+
+
+const revDirectBtn = $("reverse-direct-btn");
+if (revDirectBtn) {
+  revDirectBtn.addEventListener("click", () => triggerDirectSpotifySync());
+}
+
+const revPreviewBtn = $("reverse-preview-btn");
+if (revPreviewBtn) {
+  revPreviewBtn.addEventListener("click", () => openReverseSyncPreview());
+}
+
+const revExportBtn = $("reverse-export-btn");
+if (revExportBtn) {
+  revExportBtn.addEventListener("click", () => exportReverseSyncCsv());
+}
+
+// Check URL parameters for tab navigation and auth redirects
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get("tab") === "move-to-spotify" || urlParams.get("spotify_connected") || urlParams.get("spotify_error")) {
+  switchTab("move-to-spotify");
+  const statusEl = $("reverse-status");
+  if (urlParams.get("spotify_connected") && statusEl) {
+    statusEl.textContent = "✅ Spotify account connected successfully! You can now sync directly.";
+    statusEl.className = "import-status success";
+  } else if (urlParams.get("spotify_error") && statusEl) {
+    statusEl.textContent = `⚠️ Spotify authorization error: ${urlParams.get("spotify_error")}`;
+    statusEl.className = "import-status error";
+  }
+}
+
+function openManualModal() {
+  const sections = {
+    quickstart: `
+      <div style="font-size:0.88rem; line-height:1.6; color:#ddd;">
+        <h4 style="color:#fff; margin-top:0;">⚡ 1-Click Launch & Overview</h4>
+        <p>This tool lets you transfer playlists seamlessly between <strong>Spotify</strong> and <strong>YouTube Music</strong> without subscriptions or track limits.</p>
+        <div style="background:#161616; border:1px solid #333; border-radius:8px; padding:1rem; margin:1rem 0;">
+          <strong style="color:#fff;">How to Launch the App:</strong>
+          <ul style="margin:0.5rem 0 0 0; padding-left:1.2rem; color:#bbb;">
+            <li><strong>Windows:</strong> Double-click <code>run.bat</code>.</li>
+            <li><strong>Mac / Linux:</strong> Open terminal, run <code>bash run.sh</code>.</li>
+            <li>Opens automatically at <code>http://127.0.0.1:8000</code>.</li>
+          </ul>
+        </div>
+        <div style="background:#161616; border:1px solid #333; border-radius:8px; padding:1rem; margin:1rem 0;">
+          <strong style="color:#fff;">Choose Your Direction:</strong>
+          <ul style="margin:0.5rem 0 0 0; padding-left:1.2rem; color:#bbb;">
+            <li><span style="color:#ff0033; font-weight:600;">▶ Move to YT Music:</span> Transfer exported Spotify playlists into your YouTube Music library with 99%+ audio matching.</li>
+            <li><span style="color:#1ed760; font-weight:600;">🟢 Move to Spotify:</span> Paste any YouTube Music playlist link and sync it directly into your Spotify account or download a 1-click import CSV.</li>
+          </ul>
+        </div>
+      </div>
+    `,
+    forward: `
+      <div style="font-size:0.88rem; line-height:1.6; color:#ddd;">
+        <h4 style="color:#ff0033; margin-top:0;">▶ Spotify → YouTube Music Transfer</h4>
+        <ol style="padding-left:1.2rem; margin:0.5rem 0;">
+          <li style="margin-bottom:0.75rem;">
+            <strong>Step 1: Connect YouTube Music</strong><br>
+            Click <em>Connect YT Music</em>. Open the Google link displayed, enter the user code, and grant permission. (Takes 30 seconds).
+          </li>
+          <li style="margin-bottom:0.75rem;">
+            <strong>Step 2: Export Spotify Playlist CSV</strong><br>
+            Open <a href="https://exportify.net" target="_blank" rel="noopener" style="color:#1ed760; text-decoration:underline;">exportify.net ↗</a> in your browser. Log in and click <strong>Export</strong> on any playlist to download its <code>.csv</code> file.
+          </li>
+          <li style="margin-bottom:0.75rem;">
+            <strong>Step 3: Drop CSV &amp; Import</strong><br>
+            Drag and drop the downloaded <code>.csv</code> file into Section 2 of our app and click <strong>Import</strong>.
+          </li>
+          <li style="margin-bottom:0.75rem;">
+            <strong>Step 4: Sync &amp; Enjoy</strong><br>
+            Click <em>Pre-Sync Preview</em> to inspect matches, or click <em>Sync now</em>. Once complete, click <strong>Open in YT Music ↗</strong> to listen!
+          </li>
+        </ol>
+      </div>
+    `,
+    reverse: `
+      <div style="font-size:0.88rem; line-height:1.6; color:#ddd;">
+        <h4 style="color:#1ed760; margin-top:0;">🟢 YouTube Music → Spotify Transfer</h4>
+        <ol style="padding-left:1.2rem; margin:0.5rem 0;">
+          <li style="margin-bottom:0.75rem;">
+            <strong>Step 1: Connect Your Spotify Account</strong><br>
+            Under the <em>Move to Spotify</em> tab, click <strong>Connect Spotify Account</strong> and approve the permissions.
+          </li>
+          <li style="margin-bottom:0.75rem;">
+            <strong>Step 2: Paste Playlist Link</strong><br>
+            Copy any YouTube Music playlist URL (e.g. <code>https://music.youtube.com/playlist?list=...</code>) and paste it into the input box.
+          </li>
+          <li style="margin-bottom:0.75rem;">
+            <strong>Step 3: 1-Click Direct Sync</strong><br>
+            Click <strong>✨ Sync Directly to Spotify</strong>. The app matches every song with high precision, creates the playlist in your Spotify account, and injects the tracks automatically!
+          </li>
+          <li style="margin-bottom:0.75rem;">
+            <strong>Alternative: CSV / Desktop Paste</strong><br>
+            Click <em>📥 Export Spotify CSV</em>. You can open the file, copy the URIs, and press <kbd>Ctrl+V</kbd> inside an empty playlist in the Spotify Desktop app!
+          </li>
+        </ol>
+      </div>
+    `,
+    faq: `
+      <div style="font-size:0.88rem; line-height:1.6; color:#ddd;">
+        <h4 style="color:#fff; margin-top:0;">⚠️ Common Questions &amp; Troubleshooting</h4>
+        <div style="margin-bottom:1rem;">
+          <strong style="color:#1ed760;">Q: Do I or my friends need Spotify Premium?</strong><br>
+          <span style="color:#bbb;">No! Spotify Free accounts can transfer, create playlists, and add tracks via our tool without paying a subscription.</span>
+        </div>
+        <div style="margin-bottom:1rem;">
+          <strong style="color:#1ed760;">Q: Why did YouTube Music say "Session expired" after a week?</strong><br>
+          <span style="color:#bbb;">Because Google Cloud personal test projects refresh tokens for 7 days. Just click <em>Connect YT Music</em>, enter the new code at <code>google.com/device</code>, and your account reconnects in 10 seconds.</span>
+        </div>
+        <div style="margin-bottom:1rem;">
+          <strong style="color:#1ed760;">Q: Where is the complete written manual?</strong><br>
+          <span style="color:#bbb;">The full beginner-friendly installation and user guide is saved directly in your project folder at <code>INSTALLATION_GUIDE.md</code>.</span>
+        </div>
+      </div>
+    `,
+  };
+
+  const tabs = [
+    { label: "⚡ Quick Start", onClick: () => { $("modal-content").innerHTML = sections.quickstart; } },
+    { label: "▶ Move to YT Music", onClick: () => { $("modal-content").innerHTML = sections.forward; } },
+    { label: "🟢 Move to Spotify", onClick: () => { $("modal-content").innerHTML = sections.reverse; } },
+    { label: "⚠️ FAQ & Tips", onClick: () => { $("modal-content").innerHTML = sections.faq; } },
+  ];
+
+  openModal("📖 Spotify ⇄ YT Music Sync: User Manual", "Everything you need to know about using this tool", sections.quickstart, tabs);
+}
+window.openManualModal = openManualModal;
+
+refreshStatus().catch(err => {
+  console.error("Initial status check failed:", err);
+  const ytStatus = $("ytmusic-status");
+  if (ytStatus) {
+    ytStatus.textContent = "Server unreachable — is the backend running?";
+    ytStatus.className = "status error";
+  }
+});
+
 

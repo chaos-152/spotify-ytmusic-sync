@@ -22,6 +22,86 @@ body {
 h1 { font-size: 1.4rem; margin-bottom: 1.5rem; }
 h2 { font-size: 1.05rem; margin: 0 0 1rem; color: var(--text); }
 
+/* Directional Tabs Navigation */
+.direction-nav {
+  display: flex;
+  gap: 0.5rem;
+  background: #181818;
+  padding: 0.35rem;
+  border-radius: 12px;
+  border: 1px solid #282828;
+  margin-bottom: 1.5rem;
+}
+
+.tab-btn-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #888;
+  font-size: 0.95rem;
+  font-weight: 700;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-btn-main:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tab-btn-main.theme-yt.active {
+  background: #ff0033;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(255, 0, 51, 0.35);
+}
+
+.tab-btn-main.theme-sp.active {
+  background: #1ed760;
+  color: #000;
+  box-shadow: 0 4px 14px rgba(30, 215, 96, 0.35);
+}
+
+.card-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+.card-header-row h2 {
+  margin: 0;
+}
+
+.card-yt {
+  border-top: 3px solid #ff0033;
+}
+
+.card-sp {
+  border-top: 3px solid #1ed760;
+}
+
+.btn-yt {
+  background: #ff0033 !important;
+  color: #fff !important;
+}
+.btn-yt:hover {
+  background: #e6002e !important;
+}
+
+.btn-sp {
+  background: #1ed760 !important;
+  color: #000 !important;
+  font-weight: 700 !important;
+}
+.btn-sp:hover {
+  background: #1db954 !important;
+}
+
 .card {
   background: var(--card);
   border-radius: 12px;

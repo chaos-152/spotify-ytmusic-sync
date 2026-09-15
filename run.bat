@@ -7,7 +7,7 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 echo ============================================================
-echo    Spotify -^> YouTube Music Sync Launcher (Windows)
+echo    Spotify ⇄ YT Music Sync Launcher (Windows)
 echo ============================================================
 
 REM 1. Check Python

@@ -6,7 +6,8 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - backend/.env
+      - path: backend/.env
+        required: false
     volumes:
       # Persist SQLite database across container rebuilds
       - ./backend/app.db:/app/backend/app.db

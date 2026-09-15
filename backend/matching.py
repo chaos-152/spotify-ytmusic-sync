@@ -398,8 +398,8 @@ def find_best_match(
     best_score = float("-inf")
 
     for cand in candidates:
-        # Candidate must have a videoId to be playable/addable
-        if not cand or not cand.get("videoId"):
+        # Candidate must have a videoId, uri, or id to be a valid playable track
+        if not cand or not (cand.get("videoId") or cand.get("uri") or cand.get("id")):
             continue
 
         score = score_candidate(target, cand)
