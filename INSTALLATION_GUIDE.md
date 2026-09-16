@@ -69,8 +69,8 @@ We created automated launchers that set up everything for you automatically:
 
 To allow the app to add playlists to your YouTube Music account without charging you anything, Google requires a free personal API key. This takes about **2 minutes**:
 
-1. Open the app in your browser (**`http://127.0.0.1:8000`**).
-2. In Section 1, click the grey button: **`⚙️ Setup Google Credentials`**.
+1. When you run `run.bat` or `run.sh`, the app opens in your browser (**`http://127.0.0.1:8000`**).
+2. On first launch, the app automatically welcomes you with the **Setup Wizard modal** (Step 1 of 2: Google Cloud Credentials). You can also click **`⚙️ Setup Google Credentials`** at any time.
 3. Follow these 4 quick steps inside Google's free console:
    * Click the link in the popup to open **[Google Cloud Console](https://console.cloud.google.com/)** and sign in with your Google account.
    * Click **Select a project** at the top $\rightarrow$ click **New Project** $\rightarrow$ give it any name (e.g., `My Playlist Sync`) $\rightarrow$ click **Create**.

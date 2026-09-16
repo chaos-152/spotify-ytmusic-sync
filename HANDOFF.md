@@ -40,7 +40,6 @@ backend/
   csv_import.py       Robust Exportify CSV parser (handles alias headers, quoted commas)
   spotify_client.py   Spotify Client Credentials token manager + catalog search client
   yt_to_spotify.py    Inverted preprocessor & YouTube -> Spotify URI resolver
-  setup_wizard.py     Interactive CLI setup wizard with non-clobbering .env merge
   verify_setup.py     Environment verification utility
 
 frontend/

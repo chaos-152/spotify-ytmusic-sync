@@ -218,31 +218,21 @@ chmod +x run.sh && ./run.sh
 # On Windows:
 run.bat
 ```
-* The launcher will automatically set up `./venv`, install packages, guide you through Google Cloud credentials if missing, and open your browser to `http://127.0.0.1:8000`.
+* The launcher will automatically set up `./venv`, install packages, start the server, and open your browser to `http://127.0.0.1:8000` with zero terminal prompts. Onboarding (Google Cloud and Spotify credentials) is handled seamlessly through the web UI on first launch.
 
 ---
 
-### Option B: Interactive Setup Wizard
-If you want to configure your environment and test Google OAuth connectivity prior to running:
-
-```bash
-python -m backend.setup_wizard
-```
-
----
-
-### Option C: Docker Containerization
+### Option B: Docker Containerization
 Run without managing local Python environments:
 
 ```bash
-# Ensure backend/.env contains your Google credentials, then:
 docker compose up -d
 ```
-The application will be live at `http://localhost:8000` with persistent SQLite storage mounted at `./backend/app.db`.
+The application will be live at `http://localhost:8000` with persistent SQLite storage mounted at `./backend/app.db`. You can configure credentials directly through the web UI on first visit.
 
 ---
 
-### Option D: Manual Step-by-Step
+### Option C: Manual Step-by-Step
 
 #### 1. Environment Setup
 ```bash

@@ -140,6 +140,7 @@ h2 { font-size: 1.05rem; margin: 0 0 1rem; color: var(--text); }
 }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn.small { padding: 0.35rem 0.75rem; font-size: 0.8rem; }
+.btn.tiny { padding: 0.2rem 0.5rem; font-size: 0.72rem; border-radius: 4px; line-height: 1.2; }
 .btn.secondary { background: #333; color: var(--text); }
 
 .device-box {
@@ -541,5 +542,26 @@ h2 { font-size: 1.05rem; margin: 0 0 1rem; color: var(--text); }
   background: #2a2a2a;
   color: #aaa;
 }
+.badge-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.70rem;
+  font-weight: 500;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #aaa;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  cursor: help;
+  user-select: none;
+  line-height: 1.2;
+}
+.badge-hint:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
 
 

@@ -44,6 +44,7 @@ def init_db():
                 artist TEXT NOT NULL,
                 album TEXT,
                 duration_ms INTEGER,
+                is_override_unique INTEGER DEFAULT 0,
                 FOREIGN KEY(link_id) REFERENCES playlist_links(id)
             );
 
@@ -60,10 +61,12 @@ def init_db():
             );
             """
         )
-        # Migrate existing tracks table if duration_ms column is missing
+        # Migrate existing tracks table if duration_ms or is_override_unique column is missing
         track_cols = [r["name"] for r in conn.execute("PRAGMA table_info(tracks)").fetchall()]
         if "duration_ms" not in track_cols:
             conn.execute("ALTER TABLE tracks ADD COLUMN duration_ms INTEGER")
+        if "is_override_unique" not in track_cols:
+            conn.execute("ALTER TABLE tracks ADD COLUMN is_override_unique INTEGER DEFAULT 0")
 
         # Migrate sync_runs table for live progress and structured telemetry
         run_cols = [r["name"] for r in conn.execute("PRAGMA table_info(sync_runs)").fetchall()]
@@ -110,6 +113,14 @@ def get_token(user_id: str, provider: str) -> dict | None:
         return json.loads(row["token_json"]) if row else None
 
 
+def delete_token(user_id: str, provider: str):
+    with get_conn() as conn:
+        conn.execute(
+            "DELETE FROM tokens WHERE user_id=? AND provider=?",
+            (user_id, provider),
+        )
+
+
 # ---- playlist links + tracks ----
 
 def upsert_link(user_id: str, source_name: str) -> int:
@@ -151,8 +162,17 @@ def replace_tracks(link_id: int, tracks: list[dict]):
 def get_tracks(link_id: int) -> list[dict]:
     with get_conn() as conn:
         return [dict(r) for r in conn.execute(
-            "SELECT title, artist, album, duration_ms FROM tracks WHERE link_id=? ORDER BY position", (link_id,)
+            "SELECT id, position, title, artist, album, duration_ms, is_override_unique FROM tracks WHERE link_id=? ORDER BY position", (link_id,)
         ).fetchall()]
+
+
+def set_track_override_unique(track_id: int, override: bool = True):
+    """Marks a track as explicitly promoted to unique (override=True) or demoted back (override=False)."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE tracks SET is_override_unique=? WHERE id=?",
+            (1 if override else 0, track_id),
+        )
 
 
 def get_links(user_id: str) -> list[dict]:

@@ -35,6 +35,7 @@ backend/.env
 
 # SQLite
 *.db
+*.db.bak
 backend/app.db
 *.sqlite3
 

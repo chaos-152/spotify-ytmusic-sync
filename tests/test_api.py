@@ -4,7 +4,7 @@ import time
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
-from backend import ytmusic_auth, main
+from backend import ytmusic_auth, main, db
 
 
 def test_status_endpoint(client):
@@ -413,6 +413,257 @@ def test_spotify_user_oauth_and_direct_sync(client, monkeypatch, test_db):
     assert logout_res.status_code == 200
     status_after = client.get("/api/status").json()
     assert status_after["spotify_user_connected"] is False
+
+
+def test_ytmusic_credential_swap_and_token_invalidation(client, tmp_path, test_db, monkeypatch):
+    """Verify overwriting Google/YT credentials updates env, invalidates cached token, and preserves Spotify."""
+    fake_env = tmp_path / ".env"
+    monkeypatch.setattr(main, "ENV_FILE", fake_env)
+
+    # Initial credentials & token
+    client.post("/api/setup/spotify-credentials", json={"client_id": "sp_orig_id", "client_secret": "sp_orig_sec"})
+    client.post("/api/setup/credentials", json={"client_id": "yt_orig_id", "client_secret": "yt_orig_sec"})
+    db.save_token("me", "ytmusic", {"access_token": "stale_yt_token", "refresh_token": "stale_ref"})
+    assert db.get_token("me", "ytmusic") is not None
+
+    # Overwrite YT credentials
+    res = client.post("/api/setup/credentials", json={"client_id": "yt_new_id", "client_secret": "yt_new_sec"})
+    assert res.status_code == 200
+
+    content = fake_env.read_text(encoding="utf-8")
+    assert "YTMUSIC_CLIENT_ID=yt_new_id" in content
+    assert "YTMUSIC_CLIENT_SECRET=yt_new_sec" in content
+    assert "SPOTIFY_CLIENT_ID=sp_orig_id" in content
+    assert "SPOTIFY_CLIENT_SECRET=sp_orig_sec" in content
+
+    # Verify cached token was purged
+    assert db.get_token("me", "ytmusic") is None
+
+
+def test_ytmusic_credential_disconnect(client, tmp_path, test_db, monkeypatch):
+    """Verify disconnecting YT credentials removes them from env, purges token, and leaves Spotify intact."""
+    fake_env = tmp_path / ".env"
+    monkeypatch.setattr(main, "ENV_FILE", fake_env)
+
+    client.post("/api/setup/spotify-credentials", json={"client_id": "sp_keep_id", "client_secret": "sp_keep_sec"})
+    client.post("/api/setup/credentials", json={"client_id": "yt_del_id", "client_secret": "yt_del_sec"})
+    db.save_token("me", "ytmusic", {"access_token": "yt_token_to_purge"})
+
+    res = client.post("/api/setup/credentials/disconnect")
+    assert res.status_code == 200
+
+    content = fake_env.read_text(encoding="utf-8")
+    assert "YTMUSIC_CLIENT_ID" not in content
+    assert "YTMUSIC_CLIENT_SECRET" not in content
+    assert "SPOTIFY_CLIENT_ID=sp_keep_id" in content
+    assert "SPOTIFY_CLIENT_SECRET=sp_keep_sec" in content
+
+    assert db.get_token("me", "ytmusic") is None
+    status = client.get("/api/status").json()
+    assert status["ytmusic_configured"] is False
+    assert status["ytmusic_connected"] is False
+
+
+def test_spotify_credential_swap_and_token_invalidation(client, tmp_path, test_db, monkeypatch):
+    """Verify overwriting Spotify credentials updates env, invalidates cached user token, and preserves YT."""
+    fake_env = tmp_path / ".env"
+    monkeypatch.setattr(main, "ENV_FILE", fake_env)
+
+    client.post("/api/setup/credentials", json={"client_id": "yt_keep_id", "client_secret": "yt_keep_sec"})
+    client.post("/api/setup/spotify-credentials", json={"client_id": "sp_orig_id", "client_secret": "sp_orig_sec"})
+    db.save_token("me", "spotify_user", {"access_token": "stale_user_token"})
+    assert db.get_token("me", "spotify_user") is not None
+
+    res = client.post("/api/setup/spotify-credentials", json={"client_id": "sp_new_id", "client_secret": "sp_new_sec"})
+    assert res.status_code == 200
+
+    content = fake_env.read_text(encoding="utf-8")
+    assert "SPOTIFY_CLIENT_ID=sp_new_id" in content
+    assert "SPOTIFY_CLIENT_SECRET=sp_new_sec" in content
+    assert "YTMUSIC_CLIENT_ID=yt_keep_id" in content
+
+    # Cached user session purged
+    assert db.get_token("me", "spotify_user") is None
+
+
+def test_spotify_credential_disconnect(client, tmp_path, test_db, monkeypatch):
+    """Verify disconnecting Spotify credentials removes them from env, purges token, and leaves YT intact."""
+    fake_env = tmp_path / ".env"
+    monkeypatch.setattr(main, "ENV_FILE", fake_env)
+
+    client.post("/api/setup/credentials", json={"client_id": "yt_keep_id", "client_secret": "yt_keep_sec"})
+    client.post("/api/setup/spotify-credentials", json={"client_id": "sp_del_id", "client_secret": "sp_del_sec"})
+    db.save_token("me", "spotify_user", {"access_token": "sp_token_to_purge"})
+
+    res = client.post("/api/setup/spotify-credentials/disconnect")
+    assert res.status_code == 200
+
+    content = fake_env.read_text(encoding="utf-8")
+    assert "SPOTIFY_CLIENT_ID" not in content
+    assert "SPOTIFY_CLIENT_SECRET" not in content
+    assert "YTMUSIC_CLIENT_ID=yt_keep_id" in content
+
+    assert db.get_token("me", "spotify_user") is None
+    status = client.get("/api/status").json()
+    assert status["spotify_configured"] is False
+    assert status["spotify_user_connected"] is False
+
+
+def test_disconnect_endpoints_localhost_guard(client, monkeypatch):
+    """Verify that remote network callers cannot invoke disconnect endpoints."""
+    from fastapi import HTTPException
+    def mock_guard_fail(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Credential setup endpoints can only be accessed from localhost.",
+        )
+
+    monkeypatch.setattr(main, "assert_localhost_request", mock_guard_fail)
+    res1 = client.post("/api/setup/credentials/disconnect")
+    assert res1.status_code == 403
+    assert "localhost" in res1.json()["detail"].lower()
+
+    res2 = client.post("/api/setup/spotify-credentials/disconnect")
+    assert res2.status_code == 403
+    assert "localhost" in res2.json()["detail"].lower()
+
+
+def test_ytmusic_oauth_constants_and_contract_compatibility():
+    """Ensure ytmusicapi constants match our expectations and catch silent drift on upgrades."""
+    from ytmusicapi.constants import OAUTH_TOKEN_URL, OAUTH_SCOPE, OAUTH_USER_AGENT
+    assert ytmusic_auth.OAUTH_TOKEN_URL == "https://oauth2.googleapis.com/token"
+    assert ytmusic_auth.OAUTH_TOKEN_URL == OAUTH_TOKEN_URL
+    assert "youtube" in OAUTH_SCOPE.lower()
+    assert ytmusic_auth.OAUTH_SCOPE == OAUTH_SCOPE
+    assert bool(OAUTH_USER_AGENT)
+    assert ytmusic_auth.GOOGLE_OAUTH_DEVICE_CODE_URL == "https://oauth2.googleapis.com/device/code"
+
+
+def test_setup_credentials_validation_rejects_invalid_format(client, tmp_path, monkeypatch):
+    """Verify that credentials endpoints reject invalid format, whitespace, and bad domains."""
+    monkeypatch.setattr(main, "ENV_FILE", tmp_path / ".env")
+
+    # 1. Google Client ID with spaces
+    res = client.post("/api/setup/credentials", json={"client_id": "invalid id with spaces", "client_secret": "secret"})
+    assert res.status_code == 400
+    assert "whitespace" in res.json()["detail"].lower()
+
+    # 2. Google Client Secret with spaces
+    res = client.post("/api/setup/credentials", json={"client_id": "123.apps.googleusercontent.com", "client_secret": "secret with space"})
+    assert res.status_code == 400
+    assert "whitespace" in res.json()["detail"].lower()
+
+    # 3. Google Client ID without .apps.googleusercontent.com domain
+    res = client.post("/api/setup/credentials", json={"client_id": "unauthorized-client-id", "client_secret": "valid_secret"})
+    assert res.status_code == 400
+    assert "google client id format" in res.json()["detail"].lower()
+
+    # 4. Spotify Client ID with spaces
+    res = client.post("/api/setup/spotify-credentials", json={"client_id": "sp id with spaces", "client_secret": "valid_secret"})
+    assert res.status_code == 400
+    assert "whitespace" in res.json()["detail"].lower()
+
+    # 5. Spotify Client ID with invalid length / not hex
+    res = client.post("/api/setup/spotify-credentials", json={"client_id": "bad_short_id", "client_secret": "valid_secret"})
+    assert res.status_code == 400
+    assert "spotify client id format" in res.json()["detail"].lower()
+
+    # 6. Valid Google Client ID with official domain succeeds
+    res = client.post("/api/setup/credentials", json={"client_id": "123456789-abcdef.apps.googleusercontent.com", "client_secret": "GOCSPX-validsecret"})
+    assert res.status_code == 200
+    assert res.json() == {"ok": True}
+
+    # 7. Valid Spotify Client ID with 32 alphanumeric chars succeeds
+    res = client.post("/api/setup/spotify-credentials", json={"client_id": "0123456789abcdef0123456789abcdef", "client_secret": "fedcba9876543210fedcba9876543210"})
+    assert res.status_code == 200
+    assert res.json() == {"ok": True}
+
+
+def test_status_endpoint_onboarding_states(client, monkeypatch):
+    """Verify that /api/status correctly exposes State 1, State 2, and State 3 for onboarding."""
+    # State 1: Fresh clone - neither configured
+    monkeypatch.delenv("YTMUSIC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("YTMUSIC_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("SPOTIFY_CLIENT_ID", raising=False)
+    monkeypatch.delenv("SPOTIFY_CLIENT_SECRET", raising=False)
+
+    s1 = client.get("/api/status").json()
+    assert s1["ytmusic_configured"] is False
+    assert s1["spotify_configured"] is False
+
+    # State 2: Resume Point - Google configured, Spotify not yet configured
+    monkeypatch.setenv("YTMUSIC_CLIENT_ID", "123.apps.googleusercontent.com")
+    monkeypatch.setenv("YTMUSIC_CLIENT_SECRET", "secret")
+    s2 = client.get("/api/status").json()
+    assert s2["ytmusic_configured"] is True
+    assert s2["spotify_configured"] is False
+
+    # State 3: Both configured - ready to sync
+    monkeypatch.setenv("SPOTIFY_CLIENT_ID", "0123456789abcdef0123456789abcdef")
+    monkeypatch.setenv("SPOTIFY_CLIENT_SECRET", "fedcba9876543210fedcba9876543210")
+    s3 = client.get("/api/status").json()
+    assert s3["ytmusic_configured"] is True
+    assert s3["spotify_configured"] is True
+
+
+def test_setup_credentials_localhost_guard_remote_rejection(client, monkeypatch):
+    """Exhaustive security audit of assert_localhost_request against remote IPs and spoofed headers."""
+    from fastapi import Request, HTTPException
+
+    remote_ips = ["192.168.1.50", "10.0.0.1", "8.8.8.8", "172.16.0.5", "203.0.113.195"]
+    for ip in remote_ips:
+        mock_req = MagicMock(spec=Request)
+        mock_req.client = MagicMock(host=ip)
+        with pytest.raises(HTTPException) as exc:
+            main.assert_localhost_request(mock_req)
+        assert exc.value.status_code == 403
+
+    # Verify that spoofed proxy headers cannot bypass assert_localhost_request
+    spoof_headers = [
+        {"X-Forwarded-For": "127.0.0.1"},
+        {"X-Real-IP": "127.0.0.1"},
+        {"Forwarded": "for=127.0.0.1;proto=http;by=127.0.0.1"},
+        {"Host": "localhost"},
+    ]
+    for headers in spoof_headers:
+        mock_req = MagicMock(spec=Request)
+        mock_req.client = MagicMock(host="192.168.1.50")
+        mock_req.headers = headers
+        with pytest.raises(HTTPException) as exc:
+            main.assert_localhost_request(mock_req)
+        assert exc.value.status_code == 403
+
+    # Verify missing client (None) is rejected
+    mock_no_client = MagicMock(spec=Request)
+    mock_no_client.client = None
+    with pytest.raises(HTTPException) as exc:
+        main.assert_localhost_request(mock_no_client)
+    assert exc.value.status_code == 403
+
+
+def test_check_network_endpoint(client, monkeypatch):
+    """Verify /api/setup/check-network returns reachability status."""
+    monkeypatch.setattr(main, "check_google_oauth_reachability", lambda timeout=3.0: True)
+    res = client.get("/api/setup/check-network")
+    assert res.status_code == 200
+    assert res.json() == {"reachable": True}
+
+    monkeypatch.setattr(main, "check_google_oauth_reachability", lambda timeout=3.0: False)
+    res = client.get("/api/setup/check-network")
+    assert res.status_code == 200
+    assert res.json() == {"reachable": False}
+
+    # Verify remote callers are rejected with 403 Forbidden
+    from fastapi import HTTPException
+    monkeypatch.setattr(
+        main,
+        "assert_localhost_request",
+        lambda req: (_ for _ in ()).throw(HTTPException(403, "Forbidden: Credential setup endpoints can only be accessed from localhost.")),
+    )
+    res_remote = client.get("/api/setup/check-network")
+    assert res_remote.status_code == 403
+    assert "localhost" in res_remote.json()["detail"].lower()
+
 
 
 

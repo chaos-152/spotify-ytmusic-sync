@@ -53,14 +53,7 @@ if ! python -c "import fastapi, uvicorn, ytmusicapi" >/dev/null 2>&1; then
     echo "✓ Packages installed."
 fi
 
-# 4. Check Credentials & Environment
-if [ ! -f "backend/.env" ] && [ ! -f ".env" ]; then
-    echo ""
-    echo "⚙️ No credentials file found. Launching Setup Wizard..."
-    python -m backend.setup_wizard
-fi
-
-# 5. Launch Application
+# 4. Launch Application
 PORT=8000
 HOST="127.0.0.1"
 URL="http://${HOST}:${PORT}"

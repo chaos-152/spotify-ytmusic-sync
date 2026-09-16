@@ -13,7 +13,7 @@ from . import db
 from . import ytmusic_auth
 
 
-def run_sync(link_id: int) -> int:
+def run_sync(link_id: int, reorder_destination: bool = False) -> int:
     link = db.get_link(link_id)
     if not link:
         raise ValueError(f"No playlist link with id {link_id}")
@@ -33,7 +33,6 @@ def run_sync(link_id: int) -> int:
             )
             db.set_ytmusic_playlist_id(link_id, ytmusic_playlist_id)
 
-
         def on_progress(cur, total, title):
             db.update_run_progress(run_id, cur, total, f"Processing {cur}/{total}: {title}")
 
@@ -42,14 +41,24 @@ def run_sync(link_id: int) -> int:
             tracks,
             link["user_id"],
             on_progress=on_progress,
+            reorder_destination=reorder_destination,
         )
+
+        errors = list(result.get("errors", []))
+        if result.get("reorder"):
+            reorder_info = result["reorder"]
+            if reorder_info.get("reason") == "quota_guardrail_exceeded":
+                errors.append({
+                    "track": "[Destination Reorder]",
+                    "reason": reorder_info.get("message", "Skipped reorder to protect quota"),
+                })
 
         db.finish_run(
             run_id,
             "done",
             result["added"],
             result["skipped"],
-            result["errors"],
+            errors,
             details=result.get("details"),
         )
     except Exception as e:

@@ -41,14 +41,7 @@ if %ERRORLEVEL% neq 0 (
     echo [v] Packages installed.
 )
 
-REM 4. Check Credentials & Environment
-if not exist "backend\.env" if not exist ".env" (
-    echo.
-    echo [*] No credentials found. Starting Setup Wizard...
-    python -m backend.setup_wizard
-)
-
-REM 5. Launch Application
+REM 4. Launch Application
 set HOST=127.0.0.1
 set PORT=8000
 set URL=http://%HOST%:%PORT%

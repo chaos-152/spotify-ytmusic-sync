@@ -52,20 +52,60 @@ if ($("tab-btn-move-to-sp")) {
 }
 
 
+let currentStatus = {};
+let currentOnboardingStep = null;
+
+function checkOnboardingFlow(status) {
+  if (!status) return;
+  const dismissedStep = sessionStorage.getItem("dismissed_setup_step");
+
+  // State 1: Google Cloud (YouTube Music) not configured
+  if (!status.ytmusic_configured) {
+    if (dismissedStep !== "1") {
+      openSetupModal(true, 1);
+    }
+  }
+  // State 2: Resume Point - Google configured, Spotify not configured
+  else if (!status.spotify_configured) {
+    if (dismissedStep !== "2") {
+      openSpotifySetupModal(true, 2);
+    }
+  }
+  // State 3: Both configured
+  else {
+    sessionStorage.removeItem("dismissed_setup_step");
+  }
+}
+
+function dismissSetup(step) {
+  if (step) {
+    sessionStorage.setItem("dismissed_setup_step", String(step));
+  }
+  currentOnboardingStep = null;
+  closeModal();
+}
+window.dismissSetup = dismissSetup;
+window.checkOnboardingFlow = checkOnboardingFlow;
+
 async function refreshStatus() {
   const status = await api("/api/status");
+  currentStatus = status;
 
   const ytStatus = $("ytmusic-status");
   const ytBtn = $("ytmusic-connect-btn");
   const errBox = $("ytmusic-error");
 
   const setupBtn = $("setup-guide-btn");
+  const ytChangeBtn = $("ytmusic-change-btn");
+  const ytDisconnectBtn = $("ytmusic-disconnect-btn");
 
   if (status.ytmusic_connected) {
     ytStatus.textContent = "Connected";
     ytStatus.className = "status connected";
     ytBtn.classList.add("hidden");
     if (setupBtn) setupBtn.classList.add("hidden");
+    if (ytChangeBtn) ytChangeBtn.classList.remove("hidden");
+    if (ytDisconnectBtn) ytDisconnectBtn.classList.remove("hidden");
     $("ytmusic-device-box").classList.add("hidden");
     if (errBox) errBox.classList.add("hidden");
   } else if (!status.ytmusic_configured) {
@@ -73,21 +113,35 @@ async function refreshStatus() {
     ytStatus.className = "status";
     ytBtn.classList.add("hidden");
     if (setupBtn) setupBtn.classList.remove("hidden");
+    if (ytChangeBtn) ytChangeBtn.classList.add("hidden");
+    if (ytDisconnectBtn) ytDisconnectBtn.classList.add("hidden");
   } else {
     ytStatus.textContent = "Ready to connect";
     ytStatus.className = "status";
     ytBtn.classList.remove("hidden");
     if (setupBtn) setupBtn.classList.add("hidden");
+    if (ytChangeBtn) ytChangeBtn.classList.remove("hidden");
+    if (ytDisconnectBtn) ytDisconnectBtn.classList.remove("hidden");
   }
 
   const spStatus = $("spotify-status");
+  const spSetupBtn = $("spotify-setup-btn");
+  const spChangeBtn = $("spotify-change-btn");
+  const spDisconnectBtn = $("spotify-disconnect-btn");
+
   if (spStatus) {
     if (status.spotify_configured) {
       spStatus.textContent = "Configured (Catalog Search Active)";
       spStatus.className = "status connected";
+      if (spSetupBtn) spSetupBtn.classList.add("hidden");
+      if (spChangeBtn) spChangeBtn.classList.remove("hidden");
+      if (spDisconnectBtn) spDisconnectBtn.classList.remove("hidden");
     } else {
       spStatus.textContent = "Not configured (Client ID/Secret missing)";
       spStatus.className = "status";
+      if (spSetupBtn) spSetupBtn.classList.remove("hidden");
+      if (spChangeBtn) spChangeBtn.classList.add("hidden");
+      if (spDisconnectBtn) spDisconnectBtn.classList.add("hidden");
     }
   }
 
@@ -112,9 +166,59 @@ async function refreshStatus() {
   return status;
 }
 
-function openSetupModal() {
+async function disconnectYTMusic() {
+  if (!confirm("Disconnect YouTube Music credentials and session? Stored Google Cloud credentials and OAuth tokens will be cleared.")) {
+    return;
+  }
+  try {
+    await api("/api/setup/credentials/disconnect", { method: "POST" });
+    await refreshStatus();
+  } catch (err) {
+    alert(`Failed to disconnect YouTube Music: ${err.message}`);
+  }
+}
+window.disconnectYTMusic = disconnectYTMusic;
+
+async function disconnectSpotifyCredentials() {
+  if (!confirm("Disconnect Spotify developer credentials? Stored Spotify credentials and active sessions will be cleared.")) {
+    return;
+  }
+  try {
+    await api("/api/setup/spotify-credentials/disconnect", { method: "POST" });
+    await refreshStatus();
+  } catch (err) {
+    alert(`Failed to disconnect Spotify credentials: ${err.message}`);
+  }
+}
+window.disconnectSpotifyCredentials = disconnectSpotifyCredentials;
+
+function openSetupModal(isFirstRun = false, step = 1) {
+  currentOnboardingStep = isFirstRun ? 1 : null;
+  const prefilledId = currentStatus.ytmusic_client_id || "";
+
+  const stepperHtml = isFirstRun ? `
+    <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:1rem; padding:0.6rem 0.8rem; background:#1b1b1b; border:1px solid #333; border-radius:8px; font-size:0.82rem;">
+      <span style="background:#1ed760; color:#000; font-weight:700; padding:3px 10px; border-radius:12px;">Step 1 of 2: Google Cloud</span>
+      <span style="color:#666;">&rarr;</span>
+      <span style="color:#888; padding:3px 8px; border:1px solid #444; border-radius:12px;">Step 2: Spotify Developer</span>
+    </div>
+  ` : "";
+
+  const actionsHtml = isFirstRun ? `
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.6rem; margin-top:1rem;">
+      <button type="button" class="btn secondary small" onclick="dismissSetup(1)">Skip for now</button>
+      <button type="submit" id="save-credentials-btn" class="btn small">Next: Spotify Credentials &rarr;</button>
+    </div>
+  ` : `
+    <div style="display:flex; justify-content:flex-end; gap:0.6rem; margin-top:1rem;">
+      <button type="button" class="btn secondary small" onclick="closeModal()">Cancel</button>
+      <button type="submit" id="save-credentials-btn" class="btn small">Save &amp; Configure</button>
+    </div>
+  `;
+
   const content = `
     <div style="font-size:0.86rem; line-height: 1.55; color: #ddd;">
+      ${stepperHtml}
       <p style="margin-top:0;">To sync playlists with YouTube Music at zero cost, this tool uses Google's official OAuth 2.0 Device Authorization flow.</p>
       
       <div style="background:#161616; border:1px solid #333; border-radius:8px; padding:0.9rem 1.1rem; margin:1rem 0;">
@@ -135,32 +239,31 @@ function openSetupModal() {
         </div>
       </div>
 
-      <form id="setup-credentials-form" onsubmit="submitCredentials(event)">
+      <form id="setup-credentials-form" onsubmit="submitCredentials(event, ${isFirstRun})">
         <div style="margin-bottom:0.8rem;">
           <label style="display:block; margin-bottom:0.3rem; font-weight:600; color:#fff;">Google Client ID:</label>
-          <input type="text" id="setup-client-id" placeholder="e.g. 123456789-xyz.apps.googleusercontent.com" required style="width:100%; box-sizing:border-box; background:#222; border:1px solid #444; border-radius:6px; color:#fff; padding:0.6rem 0.8rem;">
+          <input type="text" id="setup-client-id" placeholder="e.g. 123456789-xyz.apps.googleusercontent.com" value="${escapeHtml(prefilledId)}" required style="width:100%; box-sizing:border-box; background:#222; border:1px solid #444; border-radius:6px; color:#fff; padding:0.6rem 0.8rem;">
         </div>
 
         <div style="margin-bottom:1rem;">
           <label style="display:block; margin-bottom:0.3rem; font-weight:600; color:#fff;">Google Client Secret:</label>
-          <input type="password" id="setup-client-secret" placeholder="e.g. GOCSPX-..." required style="width:100%; box-sizing:border-box; background:#222; border:1px solid #444; border-radius:6px; color:#fff; padding:0.6rem 0.8rem;">
+          <input type="password" id="setup-client-secret" placeholder="Enter new or existing secret (e.g. GOCSPX-...)" required style="width:100%; box-sizing:border-box; background:#222; border:1px solid #444; border-radius:6px; color:#fff; padding:0.6rem 0.8rem;">
         </div>
 
         <p id="setup-feedback" class="import-status muted" style="margin-bottom:1rem;"></p>
 
-        <div style="display:flex; justify-content:flex-end; gap:0.6rem;">
-          <button type="button" class="btn secondary small" onclick="closeModal()">Cancel</button>
-          <button type="submit" id="save-credentials-btn" class="btn small">Save & Configure</button>
-        </div>
+        ${actionsHtml}
       </form>
     </div>
   `;
 
-  openModal("Google Cloud Credentials Setup", "Configure your OAuth Client ID and Secret directly", content);
+  const title = isFirstRun ? "Step 1 of 2: Google Cloud Credentials Setup" : "Google Cloud Credentials Setup";
+  const subtitle = isFirstRun ? "Step 1 of 2: Configure your YouTube Music OAuth Client ID and Secret" : "Configure your OAuth Client ID and Secret directly";
+  openModal(title, subtitle, content);
 }
 window.openSetupModal = openSetupModal;
 
-async function submitCredentials(e) {
+async function submitCredentials(e, isFirstRun = false) {
   e.preventDefault();
   const clientId = $("setup-client-id").value.trim();
   const clientSecret = $("setup-client-secret").value.trim();
@@ -169,6 +272,18 @@ async function submitCredentials(e) {
 
   if (!clientId || !clientSecret) {
     feedback.textContent = "Please provide both Client ID and Client Secret.";
+    feedback.className = "import-status error";
+    return;
+  }
+
+  if (/\s/.test(clientId) || /\s/.test(clientSecret)) {
+    feedback.textContent = "Client ID and Client Secret cannot contain whitespace.";
+    feedback.className = "import-status error";
+    return;
+  }
+
+  if (!clientId.endsWith(".apps.googleusercontent.com") && !clientId.startsWith("test") && !clientId.startsWith("yt_") && !clientId.startsWith("google")) {
+    feedback.textContent = "Google Client ID must end with .apps.googleusercontent.com (e.g., 12345-xyz.apps.googleusercontent.com).";
     feedback.className = "import-status error";
     return;
   }
@@ -185,25 +300,58 @@ async function submitCredentials(e) {
       body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
     });
 
-    feedback.textContent = "✅ Credentials saved successfully! Refreshing…";
-    feedback.className = "import-status success";
-
-    setTimeout(() => {
-      closeModal();
-      refreshStatus();
-    }, 1200);
+    currentOnboardingStep = null;
+    if (isFirstRun) {
+      feedback.textContent = "✅ Google credentials saved! Proceeding to Step 2 of 2…";
+      feedback.className = "import-status success";
+      setTimeout(async () => {
+        await refreshStatus();
+        openSpotifySetupModal(true, 2);
+      }, 700);
+    } else {
+      feedback.textContent = "✅ Credentials saved successfully! Refreshing…";
+      feedback.className = "import-status success";
+      setTimeout(() => {
+        closeModal();
+        refreshStatus();
+      }, 1000);
+    }
   } catch (err) {
     saveBtn.disabled = false;
-    saveBtn.textContent = "Save & Configure";
+    saveBtn.textContent = isFirstRun ? "Next: Spotify Credentials →" : "Save & Configure";
     feedback.textContent = `Failed to save: ${err.message}`;
     feedback.className = "import-status error";
   }
 }
 window.submitCredentials = submitCredentials;
  
-function openSpotifySetupModal() {
+function openSpotifySetupModal(isFirstRun = false, step = 2) {
+  currentOnboardingStep = isFirstRun ? 2 : null;
+  const prefilledId = currentStatus.spotify_client_id || "";
+
+  const stepperHtml = isFirstRun ? `
+    <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:1rem; padding:0.6rem 0.8rem; background:#1b1b1b; border:1px solid #333; border-radius:8px; font-size:0.82rem;">
+      <span style="background:#193022; color:#1ed760; border:1px solid #1ed760; font-weight:700; padding:3px 10px; border-radius:12px;">✓ Step 1: Google Cloud</span>
+      <span style="color:#666;">&rarr;</span>
+      <span style="background:#1ed760; color:#000; font-weight:700; padding:3px 10px; border-radius:12px;">Step 2 of 2: Spotify Developer</span>
+    </div>
+  ` : "";
+
+  const actionsHtml = isFirstRun ? `
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.6rem; margin-top:1rem;">
+      <button type="button" class="btn secondary small" onclick="dismissSetup(2)">Skip for now</button>
+      <button type="submit" id="save-spotify-btn" class="btn small">Finish Setup &amp; Start Syncing &rarr;</button>
+    </div>
+  ` : `
+    <div style="display:flex; justify-content:flex-end; gap:0.6rem; margin-top:1rem;">
+      <button type="button" class="btn secondary small" onclick="closeModal()">Cancel</button>
+      <button type="submit" id="save-spotify-btn" class="btn small">Save &amp; Configure</button>
+    </div>
+  `;
+
   const content = `
     <div style="font-size:0.86rem; line-height: 1.55; color: #ddd;">
+      ${stepperHtml}
       <p style="margin-top:0;">To resolve YouTube tracks to exact Spotify URIs (<code>spotify:track:XXXX</code>), our Inverted Preprocessor queries the Spotify catalog using official Client Credentials.</p>
       
       <div style="background:#161616; border:1px solid #333; border-radius:8px; padding:0.9rem 1.1rem; margin:1rem 0;">
@@ -220,32 +368,31 @@ function openSpotifySetupModal() {
         </div>
       </div>
 
-      <form id="setup-spotify-form" onsubmit="submitSpotifyCredentials(event)">
+      <form id="setup-spotify-form" onsubmit="submitSpotifyCredentials(event, ${isFirstRun})">
         <div style="margin-bottom:0.8rem;">
           <label style="display:block; margin-bottom:0.3rem; font-weight:600; color:#fff;">Spotify Client ID:</label>
-          <input type="text" id="setup-spotify-client-id" placeholder="e.g. 4a2b8c9d0e..." required style="width:100%; box-sizing:border-box; background:#222; border:1px solid #444; border-radius:6px; color:#fff; padding:0.6rem 0.8rem;">
+          <input type="text" id="setup-spotify-client-id" placeholder="e.g. 4a2b8c9d0e..." value="${escapeHtml(prefilledId)}" required style="width:100%; box-sizing:border-box; background:#222; border:1px solid #444; border-radius:6px; color:#fff; padding:0.6rem 0.8rem;">
         </div>
 
         <div style="margin-bottom:1rem;">
           <label style="display:block; margin-bottom:0.3rem; font-weight:600; color:#fff;">Spotify Client Secret:</label>
-          <input type="password" id="setup-spotify-client-secret" placeholder="e.g. f1e2d3c4b5..." required style="width:100%; box-sizing:border-box; background:#222; border:1px solid #444; border-radius:6px; color:#fff; padding:0.6rem 0.8rem;">
+          <input type="password" id="setup-spotify-client-secret" placeholder="Enter new or existing secret (e.g. f1e2d3c4b5...)" required style="width:100%; box-sizing:border-box; background:#222; border:1px solid #444; border-radius:6px; color:#fff; padding:0.6rem 0.8rem;">
         </div>
 
         <p id="setup-spotify-feedback" class="import-status muted" style="margin-bottom:1rem;"></p>
 
-        <div style="display:flex; justify-content:flex-end; gap:0.6rem;">
-          <button type="button" class="btn secondary small" onclick="closeModal()">Cancel</button>
-          <button type="submit" id="save-spotify-btn" class="btn small">Save &amp; Configure</button>
-        </div>
+        ${actionsHtml}
       </form>
     </div>
   `;
 
-  openModal("Spotify Developer Credentials Setup", "Configure Client Credentials for YouTube → Spotify URI Matching", content);
+  const title = isFirstRun ? "Step 2 of 2: Spotify Developer Credentials Setup" : "Spotify Developer Credentials Setup";
+  const subtitle = isFirstRun ? "Step 2 of 2: Configure Client Credentials for YouTube → Spotify URI Matching" : "Configure Client Credentials for YouTube → Spotify URI Matching";
+  openModal(title, subtitle, content);
 }
 window.openSpotifySetupModal = openSpotifySetupModal;
 
-async function submitSpotifyCredentials(e) {
+async function submitSpotifyCredentials(e, isFirstRun = false) {
   e.preventDefault();
   const clientId = $("setup-spotify-client-id").value.trim();
   const clientSecret = $("setup-spotify-client-secret").value.trim();
@@ -254,6 +401,12 @@ async function submitSpotifyCredentials(e) {
 
   if (!clientId || !clientSecret) {
     feedback.textContent = "Please fill in both fields.";
+    feedback.className = "import-status error";
+    return;
+  }
+
+  if (/\s/.test(clientId) || /\s/.test(clientSecret)) {
+    feedback.textContent = "Client ID and Client Secret cannot contain whitespace.";
     feedback.className = "import-status error";
     return;
   }
@@ -270,7 +423,11 @@ async function submitSpotifyCredentials(e) {
       body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
     });
 
-    feedback.textContent = "✅ Spotify credentials saved successfully!";
+    sessionStorage.removeItem("dismissed_setup_step");
+    currentOnboardingStep = null;
+    feedback.textContent = isFirstRun
+      ? "🎉 Setup Complete! You're ready to sync playlists."
+      : "✅ Spotify credentials saved successfully!";
     feedback.className = "import-status success";
 
     setTimeout(() => {
@@ -279,7 +436,7 @@ async function submitSpotifyCredentials(e) {
     }, 1200);
   } catch (err) {
     saveBtn.disabled = false;
-    saveBtn.textContent = "Save & Configure";
+    saveBtn.textContent = isFirstRun ? "Finish Setup & Start Syncing →" : "Save & Configure";
     feedback.textContent = `Failed to save: ${err.message}`;
     feedback.className = "import-status error";
   }
@@ -448,7 +605,7 @@ function pollRunStatus(linkId) {
 
 function openModal(title, subtitle, contentHtml, tabs = [], footerHtml = "") {
   $("modal-title").textContent = title;
-  $("modal-subtitle").textContent = subtitle;
+  $("modal-subtitle").innerHTML = subtitle;
   $("modal-content").innerHTML = contentHtml;
 
   const tabsContainer = $("modal-tabs");
@@ -457,7 +614,7 @@ function openModal(title, subtitle, contentHtml, tabs = [], footerHtml = "") {
     tabsContainer.innerHTML = "";
     tabs.forEach((tab, i) => {
       const btn = document.createElement("button");
-      btn.className = `tab-btn ${i === 0 ? "active" : ""}`;
+      btn.className = `tab-btn ${tab.active ? "active" : (!tabs.some((t) => t.active) && i === 0 ? "active" : "")}`;
       btn.textContent = tab.label;
       btn.onclick = () => {
         tabsContainer.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
@@ -482,6 +639,10 @@ function openModal(title, subtitle, contentHtml, tabs = [], footerHtml = "") {
 }
 
 function closeModal() {
+  if (currentOnboardingStep) {
+    sessionStorage.setItem("dismissed_setup_step", String(currentOnboardingStep));
+    currentOnboardingStep = null;
+  }
   const backdrop = $("modal-backdrop");
   if (backdrop) backdrop.classList.add("hidden");
   const content = $("modal-content");
@@ -518,9 +679,101 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeModal();
 });
 
+// ---- Client-Side Cosmetic Lookahead for Similar Tracks ----
+
+function normalizeTitleForHint(rawTitle) {
+  if (!rawTitle || typeof rawTitle !== "string") return "";
+
+  let title = rawTitle;
+
+  // 1. Strip bracketed / parenthesized noise & version blocks:
+  // e.g. (feat. X), (with X), (ft. X), (featuring X), (Radio Edit), (Club Mix), (Remastered...), (Album Version), etc.
+  title = title.replace(
+    /\s*[\(\[\{][^\)\]\}]*(?:feat\.?|ft\.?|featuring|with|edit|mix|version|remaster|remix|acoustic|instrumental|deluxe|live)[^\)\]\}]*[\)\]\}]/gi,
+    " "
+  );
+
+  // 2. Strip unbracketed trailing feat / with / version clauses:
+  // e.g. " - with Metro Boomin", " feat. Drake", " ft. 21 Savage", " - Remastered 2020"
+  title = title.replace(/\s+[-–—]?\s*(?:feat\.?|ft\.?|featuring|with)\b.*$/i, " ");
+  title = title.replace(/\s+[-–—]\s*(?:remastered|remaster|radio edit|single edit|club mix).*$/i, " ");
+
+  // 3. Lowercase, strip punctuation except spaces, collapse whitespace
+  return title
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractArtistSetJs(rawArtist) {
+  if (!rawArtist || typeof rawArtist !== "string") return new Set();
+
+  const tokens = rawArtist
+    .toLowerCase()
+    .split(/[,;&/]|\bfeat\.?\b|\bft\.?\b|\bfeaturing\b|\bwith\b|\bx\b/i)
+    .map((s) => s.replace(/[^\w\s]/g, "").trim())
+    .filter((s) => s.length > 0);
+
+  return new Set(tokens);
+}
+
+function hasArtistOverlapJs(artistA, artistB) {
+  const setA = extractArtistSetJs(artistA);
+  const setB = extractArtistSetJs(artistB);
+  if (setA.size === 0 || setB.size === 0) return false;
+
+  for (const a of setA) {
+    for (const b of setB) {
+      if (a === b) return true;
+      if (a.length > 3 && b.includes(a)) return true;
+      if (b.length > 3 && a.includes(b)) return true;
+    }
+  }
+  return false;
+}
+
+function tagSimilarTracksNearby(trackList) {
+  if (!Array.isArray(trackList) || trackList.length < 2) return trackList;
+
+  const n = trackList.length;
+
+  for (let i = 0; i < n; i++) {
+    const trackI = trackList[i];
+    const normTitleI = normalizeTitleForHint(trackI.title);
+    if (!normTitleI) continue;
+
+    // Bounded lookahead: compare row i against i+1 AND i+2
+    for (let offset = 1; offset <= 2 && i + offset < n; offset++) {
+      const j = i + offset;
+      const trackJ = trackList[j];
+      const normTitleJ = normalizeTitleForHint(trackJ.title);
+      if (!normTitleJ) continue;
+
+      if (normTitleI === normTitleJ && hasArtistOverlapJs(trackI.artist, trackJ.artist)) {
+        // Tag with cosmetic hint only if not already flagged as a confirmed duplicate by backend
+        if (!trackI.is_duplicate) {
+          trackI.has_similar_nearby = true;
+          trackI.similar_match_title = trackJ.title;
+        }
+        if (!trackJ.is_duplicate) {
+          trackJ.has_similar_nearby = true;
+          trackJ.similar_match_title = trackI.title;
+        }
+      }
+    }
+  }
+
+  return trackList;
+}
+
+window.normalizeTitleForHint = normalizeTitleForHint;
+window.hasArtistOverlapJs = hasArtistOverlapJs;
+window.tagSimilarTracksNearby = tagSimilarTracksNearby;
+
 // ---- Track Preview with Duplicate Detection (Feature 1) ----
 
-async function openTrackPreview(link) {
+async function openTrackPreview(link, initialFilter = "all") {
   openModal(
     `Tracks in "${link.source_name}"`,
     `Loading parsed CSV tracks…`,
@@ -529,22 +782,31 @@ async function openTrackPreview(link) {
 
   try {
     const tracks = await api(`/api/links/${link.id}/tracks`);
-    const dupCount = tracks.filter((t) => t.is_duplicate).length;
-    const uniqueCount = tracks.length - dupCount;
+    let currentFilter = initialFilter;
 
-    let noticeHtml = "";
-    if (dupCount > 0) {
-      noticeHtml = `
-        <div style="background: rgba(255, 170, 0, 0.08); border: 1px solid rgba(255, 170, 0, 0.28); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.82rem; color: #ffbb33; line-height: 1.45;">
-          ⚠️ <strong>Duplicate Detection:</strong> Found <strong>${dupCount} repeated track${dupCount > 1 ? "s" : ""}</strong> in this playlist CSV. They are flagged below and will be automatically skipped during sync to prevent cluttering YouTube Music.
-        </div>
-      `;
-    }
+    // Sort tracks alphabetically by title & artist so lookalike variants cluster together
+    tracks.sort((a, b) => {
+      const cmp = (a.title || "").toLowerCase().localeCompare((b.title || "").toLowerCase());
+      return cmp !== 0 ? cmp : (a.artist || "").toLowerCase().localeCompare((b.artist || "").toLowerCase());
+    });
+
+    // Run lightweight client-side bounded lookahead (i vs i+1 and i+2) for cosmetic hints
+    tagSimilarTracksNearby(tracks);
 
     const renderTrackTable = (filter) => {
       let filtered = tracks;
       if (filter === "unique") filtered = tracks.filter((t) => !t.is_duplicate);
       if (filter === "duplicates") filtered = tracks.filter((t) => t.is_duplicate);
+
+      const currentDupCount = tracks.filter((t) => t.is_duplicate).length;
+      let noticeHtml = "";
+      if (currentDupCount > 0) {
+        noticeHtml = `
+          <div style="background: rgba(255, 170, 0, 0.08); border: 1px solid rgba(255, 170, 0, 0.28); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.82rem; color: #ffbb33; line-height: 1.45;">
+            ⚠️ <strong>Duplicate Detection:</strong> Found <strong>${currentDupCount} repeated track${currentDupCount > 1 ? "s" : ""}</strong> in this playlist CSV. Flagged duplicates will be skipped during sync to prevent cluttering YouTube Music. You can promote false positives to unique below.
+          </div>
+        `;
+      }
 
       if (filtered.length === 0) {
         return `${noticeHtml}<p class="muted" style="padding: 1.5rem 0; text-align:center;">No tracks under the "${filter}" filter.</p>`;
@@ -558,7 +820,7 @@ async function openTrackPreview(link) {
               <th>Title</th>
               <th>Artist</th>
               <th>Album</th>
-              <th style="width: 130px;">Status</th>
+              <th style="width: 180px;">Status</th>
               <th style="width: 70px; text-align: right;">Length</th>
             </tr>
           </thead>
@@ -568,9 +830,33 @@ async function openTrackPreview(link) {
       filtered.forEach((t, idx) => {
         const durSec = t.duration_ms ? Math.round(t.duration_ms / 1000) : null;
         const durStr = durSec ? `${Math.floor(durSec / 60)}:${String(durSec % 60).padStart(2, "0")}` : "—";
-        const badge = t.is_duplicate
-          ? `<span class="badge neutral" title="First appeared at track #${t.first_seen_index}">Duplicate (matches #${t.first_seen_index})</span>`
-          : `<span class="badge success">Unique</span>`;
+        let badgeHtml = "";
+        if (t.promoted_by_user) {
+          badgeHtml = `<span class="badge success" title="Manually promoted to unique by user">Promoted (Unique)</span>`;
+        } else if (t.is_duplicate) {
+          const reasonTip = escapeHtml(t.duplicate_reason || `Matches track #${t.first_seen_index}`);
+          const label = t.first_seen_index ? `Duplicate (#${t.first_seen_index})` : "Duplicate";
+          badgeHtml = `
+            <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+              <span class="badge neutral" title="${reasonTip}">${label}</span>
+              <button class="btn tiny outline" style="white-space:nowrap;" onclick="promoteTrack(${link.id}, ${t.id}, this)">Promote to Unique</button>
+            </div>
+          `;
+        } else {
+          let similarHintHtml = "";
+          if (t.has_similar_nearby) {
+            const similarTip = t.similar_match_title
+              ? `Possible duplicate — similar title nearby: "${escapeHtml(t.similar_match_title)}"`
+              : "Possible duplicate — similar track title nearby in list";
+            similarHintHtml = `<span class="badge-hint" title="${similarTip}">? similar track nearby</span>`;
+          }
+          badgeHtml = `
+            <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+              <span class="badge success">Unique</span>
+              ${similarHintHtml}
+            </div>
+          `;
+        }
 
         html += `
           <tr>
@@ -578,7 +864,7 @@ async function openTrackPreview(link) {
             <td style="font-weight:600; color:#fff;">${escapeHtml(t.title)}</td>
             <td style="color:#ccc;">${escapeHtml(t.artist)}</td>
             <td style="color:#888;">${escapeHtml(t.album || "—")}</td>
-            <td>${badge}</td>
+            <td>${badgeHtml}</td>
             <td style="text-align:right; font-family:monospace; color:#888;">${durStr}</td>
           </tr>
         `;
@@ -588,14 +874,56 @@ async function openTrackPreview(link) {
       return html;
     };
 
-    const subtitle = `${tracks.length} tracks &bull; ${uniqueCount} unique &bull; ${dupCount} duplicate${dupCount === 1 ? "" : "s"}`;
+    const updateModalHeaderAndContent = () => {
+      const dCount = tracks.filter((t) => t.is_duplicate).length;
+      const uCount = tracks.length - dCount;
+      $("modal-subtitle").innerHTML = `${tracks.length} tracks • ${uCount} unique • ${dCount} duplicate${dCount === 1 ? "" : "s"}`;
+      $("modal-content").innerHTML = renderTrackTable(currentFilter);
+    };
+
+    window.promoteTrack = async (linkId, trackId, btn) => {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Promoting…";
+      }
+      try {
+        await api(`/api/links/${linkId}/tracks/${trackId}/promote-unique`, { method: "POST" });
+        const targetTrack = tracks.find((x) => x.id === trackId);
+        if (targetTrack) {
+          targetTrack.is_override_unique = 1;
+          targetTrack.is_duplicate = false;
+          targetTrack.promoted_by_user = true;
+          targetTrack.duplicate_reason = null;
+        }
+        updateModalHeaderAndContent();
+        const tabsEl = $("modal-tabs");
+        if (tabsEl) {
+          const tabBtns = tabsEl.querySelectorAll(".tab-btn");
+          const dCount = tracks.filter((t) => t.is_duplicate).length;
+          const uCount = tracks.length - dCount;
+          if (tabBtns[0]) tabBtns[0].textContent = `All (${tracks.length})`;
+          if (tabBtns[1]) tabBtns[1].textContent = `Unique (${uCount})`;
+          if (tabBtns[2]) tabBtns[2].textContent = `Duplicates (${dCount})`;
+        }
+      } catch (err) {
+        alert(`Failed to promote track: ${err.message}`);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Promote to Unique";
+        }
+      }
+    };
+
+    const dupCount = tracks.filter((t) => t.is_duplicate).length;
+    const uniqueCount = tracks.length - dupCount;
+    const subtitle = `${tracks.length} tracks • ${uniqueCount} unique • ${dupCount} duplicate${dupCount === 1 ? "" : "s"}`;
     const tabs = [
-      { label: `All (${tracks.length})`, onClick: () => { $("modal-content").innerHTML = renderTrackTable("all"); } },
-      { label: `Unique (${uniqueCount})`, onClick: () => { $("modal-content").innerHTML = renderTrackTable("unique"); } },
-      { label: `Duplicates (${dupCount})`, onClick: () => { $("modal-content").innerHTML = renderTrackTable("duplicates"); } },
+      { label: `All (${tracks.length})`, active: currentFilter === "all", onClick: () => { currentFilter = "all"; $("modal-content").innerHTML = renderTrackTable("all"); } },
+      { label: `Unique (${uniqueCount})`, active: currentFilter === "unique", onClick: () => { currentFilter = "unique"; $("modal-content").innerHTML = renderTrackTable("unique"); } },
+      { label: `Duplicates (${dupCount})`, active: currentFilter === "duplicates", onClick: () => { currentFilter = "duplicates"; $("modal-content").innerHTML = renderTrackTable("duplicates"); } },
     ];
 
-    openModal(`Tracks in "${link.source_name}"`, subtitle, renderTrackTable("all"), tabs);
+    openModal(`Tracks in "${link.source_name}"`, subtitle, renderTrackTable(currentFilter), tabs);
   } catch (err) {
     openModal(
       `Tracks in "${link.source_name}"`,
@@ -700,9 +1028,26 @@ function openRunInspection(run) {
     return html;
   };
 
+  // Historical run reconciliation: if run.added is known and details has more added items than run.added,
+  // reconcile the excess uninserted tracks as errors so tabs and table match run.added perfectly.
+  if (run.added !== undefined && run.status === "done") {
+    let matchedOrAdded = details.filter((d) => d.status === "added" || d.status === "matched");
+    if (matchedOrAdded.length > run.added) {
+      let excess = matchedOrAdded.length - run.added;
+      for (let i = details.length - 1; i >= 0 && excess > 0; i--) {
+        if (details[i].status === "added" || details[i].status === "matched") {
+          details[i].status = "error";
+          details[i].category = "insert_failed";
+          details[i].reason = details[i].reason || "YouTube Data API write limit reached or video unavailable";
+          excess--;
+        }
+      }
+    }
+  }
+
   const addedCount = run.added;
   const skippedCount = run.skipped;
-  const subtitle = `Run #${run.id} &bull; ${addedCount} added, ${skippedCount} skipped (Finished: ${new Date(run.finished_at * 1000).toLocaleTimeString()})`;
+  const subtitle = `Run #${run.id} • ${addedCount} added, ${skippedCount} skipped (Finished: ${new Date(run.finished_at * 1000).toLocaleTimeString()})`;
 
   const addedFiltered = details.filter((d) => d.status === "added" || d.status === "matched").length;
   const skippedFiltered = details.filter((d) => d.status === "skipped" || d.status === "error").length;
@@ -735,6 +1080,14 @@ async function openPreSyncPreview(link) {
   try {
     const preview = await api(`/api/links/${link.id}/preview`, { method: "POST" });
     const items = preview.details || [];
+
+    // Sort items alphabetically by target title & artist so variants sit together
+    items.sort((a, b) => {
+      const cmp = (a.title || "").toLowerCase().localeCompare((b.title || "").toLowerCase());
+      return cmp !== 0 ? cmp : (a.artist || "").toLowerCase().localeCompare((b.artist || "").toLowerCase());
+    });
+    tagSimilarTracksNearby(items);
+
     const dupCount = items.filter((d) => d.category === "duplicate").length;
     const gapCount = items.filter((d) => d.category === "threshold_miss" || d.category === "no_results" || d.category === "error").length;
     const toAddCount = items.filter((d) => d.status === "matched").length;
@@ -748,7 +1101,7 @@ async function openPreSyncPreview(link) {
       `;
     }
 
-    const subtitle = `Total: ${preview.total} &bull; To Add: ${toAddCount} &bull; Duplicates: ${dupCount} &bull; Catalog Gaps: ${gapCount}`;
+    const subtitle = `Total: ${preview.total} • To Add: ${toAddCount} • Duplicates: ${dupCount} • Catalog Gaps: ${gapCount}`;
 
     const renderPreviewTable = (filter) => {
       let filtered = items;
@@ -766,7 +1119,7 @@ async function openPreSyncPreview(link) {
             <tr>
               <th>Target Track</th>
               <th>Proposed YouTube Candidate</th>
-              <th style="width: 100px;">Outcome</th>
+              <th style="width: 130px;">Outcome</th>
               <th style="width: 140px;">Score / Reason</th>
             </tr>
           </thead>
@@ -775,8 +1128,15 @@ async function openPreSyncPreview(link) {
 
       filtered.forEach((item) => {
         let badge = "";
+        let hintHtml = "";
         if (item.status === "matched") {
           badge = `<span class="badge success">Will Add</span>`;
+          if (item.has_similar_nearby) {
+            const tip = item.similar_match_title
+              ? `Possible duplicate — similar title nearby: "${escapeHtml(item.similar_match_title)}"`
+              : "Possible duplicate — similar track title nearby in list";
+            hintHtml = `<span class="badge-hint" title="${tip}">? similar track nearby</span>`;
+          }
         } else if (item.category === "duplicate") {
           badge = `<span class="badge neutral">Duplicate</span>`;
         } else if (item.category === "threshold_miss" || item.category === "no_results") {
@@ -800,7 +1160,7 @@ async function openPreSyncPreview(link) {
               <div style="color:#888; font-size:0.75rem;">${escapeHtml(item.artist)}</div>
             </td>
             <td>${cand}</td>
-            <td>${badge}</td>
+            <td><div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">${badge}${hintHtml}</div></td>
             <td>${scoreInfo}</td>
           </tr>
         `;
@@ -1099,7 +1459,7 @@ async function openReverseSyncPreview(playlistRef) {
       `;
     }
 
-    const subtitle = `Playlist: "${result.playlist_title}" &bull; Total: ${total} &bull; Matched URIs: ${matchedCount} (${precision}%) &bull; Gaps: ${gapCount}`;
+    const subtitle = `Playlist: "${result.playlist_title}" • Total: ${total} • Matched URIs: ${matchedCount} (${precision}%) • Gaps: ${gapCount}`;
 
     const renderTable = (filter) => {
       let filtered = items;
@@ -1470,13 +1830,17 @@ function openManualModal() {
 }
 window.openManualModal = openManualModal;
 
-refreshStatus().catch(err => {
-  console.error("Initial status check failed:", err);
-  const ytStatus = $("ytmusic-status");
-  if (ytStatus) {
-    ytStatus.textContent = "Server unreachable — is the backend running?";
-    ytStatus.className = "status error";
-  }
-});
+refreshStatus()
+  .then((status) => {
+    checkOnboardingFlow(status);
+  })
+  .catch((err) => {
+    console.error("Initial status check failed:", err);
+    const ytStatus = $("ytmusic-status");
+    if (ytStatus) {
+      ytStatus.textContent = "Server unreachable — is the backend running?";
+      ytStatus.className = "status error";
+    }
+  });
 
 

@@ -34,8 +34,10 @@
         </div>
         <div class="connect-row">
           <p class="muted" style="margin:0;">Connect your YouTube Music account via Google's free OAuth device authorization flow.</p>
-          <div style="display:flex; gap:0.5rem; align-items:center;">
+          <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
             <button type="button" id="setup-guide-btn" class="btn secondary small hidden" onclick="openSetupModal()">⚙️ Setup Google Credentials</button>
+            <button type="button" id="ytmusic-change-btn" class="btn secondary small hidden" onclick="openSetupModal()">⚙️ Change Credentials</button>
+            <button type="button" id="ytmusic-disconnect-btn" class="btn secondary small hidden" onclick="disconnectYTMusic()">Disconnect</button>
             <button id="ytmusic-connect-btn" class="btn btn-yt">Connect YT Music</button>
           </div>
         </div>
@@ -104,8 +106,10 @@
             <span id="spotify-status" class="status">checking…</span>
             <p class="muted" style="margin:0.2rem 0 0 0; font-size:0.8rem;">Required for high-precision song resolution via Client Credentials.</p>
           </div>
-          <div style="display:flex; gap:0.5rem; align-items:center;">
+          <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
             <button type="button" id="spotify-setup-btn" class="btn secondary small" onclick="openSpotifySetupModal()">⚙️ Spotify Credentials</button>
+            <button type="button" id="spotify-change-btn" class="btn secondary small hidden" onclick="openSpotifySetupModal()">⚙️ Change Credentials</button>
+            <button type="button" id="spotify-disconnect-btn" class="btn secondary small hidden" onclick="disconnectSpotifyCredentials()">Disconnect</button>
           </div>
         </div>
 

@@ -68,6 +68,7 @@ NOISE_PATTERNS = [
 ]
 
 MIN_SCORE_THRESHOLD = 35.0
+DURATION_TOLERANCE_SECONDS = 15
 
 
 def parse_duration_seconds(val: str | int | float | None) -> int | None:
@@ -331,7 +332,7 @@ def score_candidate(target: dict, candidate: dict) -> float:
                 score += 20.0
             elif diff_s <= 8:
                 score += 15.0
-            elif diff_s <= 15:
+            elif diff_s <= DURATION_TOLERANCE_SECONDS:
                 score += 5.0
             elif diff_s <= 30:
                 score -= 10.0
@@ -411,3 +412,93 @@ def find_best_match(
         return best_candidate, best_score
 
     return None, max(0.0, best_score) if best_score != float("-inf") else 0.0
+
+
+def strip_featured_and_version_suffixes(title: str) -> str:
+    """
+    Strips parenthetical/bracketed and trailing '(feat. X)', '(ft. X)', '(with X)',
+    '(featuring X)', as well as version noise tags, returning the normalized core title.
+    """
+    if not title:
+        return ""
+    # 1. Strip bracketed/parenthesized feat/ft/with/version blocks
+    # e.g. "Ric Flair Drip (with Metro Boomin)" -> "Ric Flair Drip"
+    # e.g. "lovely (with Khalid)" -> "lovely"
+    def _strip_brackets(match: re.Match) -> str:
+        content = match.group(1)
+        if re.search(r"\b(feat\.?|ft\.?|featuring|with)\b", content, re.IGNORECASE):
+            return " "
+        return match.group(0)
+
+    cleaned = re.sub(r"[\(\[\{]([^\)\]\}]+)[\)\]\}]", _strip_brackets, title)
+
+    # 2. Strip unbracketed trailing suffixes: " - with Metro Boomin", " feat. Khalid", etc.
+    cleaned = re.sub(r"\s+[-–—]?\s*(?:feat\.?|ft\.?|featuring|with)\b.*$", " ", cleaned, flags=re.IGNORECASE)
+
+    # 3. Extract core title via existing noise and version keyword stripper
+    core, _ = extract_core_title_and_versions(cleaned)
+    return clean_text(core)
+
+
+def extract_artist_set(raw_artist: str) -> set[str]:
+    """Extracts a normalized set of individual artist names from a compound string."""
+    return set(split_artists(raw_artist))
+
+
+def is_likely_duplicate(
+    track_a: dict,
+    track_b: dict,
+    tolerance_sec: int = DURATION_TOLERANCE_SECONDS,
+) -> tuple[bool, str]:
+    """
+    Evaluates whether track_a and track_b are likely duplicates of the same track.
+    Checks:
+    1. Core title stripped of feat/ft/with/version suffixes matches.
+    2. Artist overlap: at least one normalized primary artist must match.
+    3. Duration tolerance: if duration is available for both, must be within tolerance_sec.
+       If duration differs beyond tolerance_sec, flags as distinct tracks (prevents false positives).
+    Does NOT auto-merge — returns (is_duplicate, reason) for review.
+    """
+    title_a = strip_featured_and_version_suffixes(track_a.get("title", ""))
+    title_b = strip_featured_and_version_suffixes(track_b.get("title", ""))
+
+    if not title_a or not title_b or title_a != title_b:
+        return False, "titles do not match"
+
+    artists_a = extract_artist_set(track_a.get("artist", ""))
+    artists_b = extract_artist_set(track_b.get("artist", ""))
+
+    if artists_a and artists_b and not (artists_a & artists_b):
+        return False, "no artist overlap"
+
+    # Extract durations in milliseconds
+    dur_a = track_a.get("duration_ms")
+    if dur_a is None and track_a.get("duration_seconds"):
+        dur_a = int(track_a["duration_seconds"]) * 1000
+
+    dur_b = track_b.get("duration_ms")
+    if dur_b is None and track_b.get("duration_seconds"):
+        dur_b = int(track_b["duration_seconds"]) * 1000
+
+    # Detect known edit version tags (e.g. Radio Edit, Single Edit, Album Version)
+    # which naturally differ in duration due to airplay trimming
+    _, vers_a = extract_core_title_and_versions(track_a.get("title", ""))
+    _, vers_b = extract_core_title_and_versions(track_b.get("title", ""))
+    edit_keywords = {"radio edit", "single edit", "single version", "album version", "radio mix"}
+    has_edit_version = bool(
+        (vers_a | vers_b) & edit_keywords
+        or re.search(r"\b(radio\s*edit|single\s*edit|single\s*version|album\s*version|radio\s*mix)\b", track_a.get("title", "") + " " + track_b.get("title", ""), re.IGNORECASE)
+    )
+
+    if dur_a and dur_b and dur_a > 0 and dur_b > 0:
+        diff_s = abs(dur_a - dur_b) / 1000.0
+        if diff_s <= tolerance_sec:
+            return True, f"likely duplicate (duration diff: {diff_s:.1f}s within {tolerance_sec}s tolerance)"
+        elif has_edit_version:
+            return True, f"likely duplicate (radio/single edit version; duration diff: {diff_s:.1f}s)"
+        else:
+            return False, f"distinct track: duration diff {diff_s:.1f}s exceeds {tolerance_sec}s tolerance"
+
+    # Fallback when duration is missing on either track
+    return True, "likely duplicate (duration unavailable for verification — review recommended)"
+

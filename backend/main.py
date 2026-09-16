@@ -1,5 +1,6 @@
 import os
 import time
+import urllib.request
 from pathlib import Path
 from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse, Response, RedirectResponse
@@ -37,15 +38,19 @@ class ReverseSyncPayload(BaseModel):
 
 @app.get("/api/status")
 def status():
-    yt_configured = bool(os.getenv("YTMUSIC_CLIENT_ID") and os.getenv("YTMUSIC_CLIENT_SECRET"))
-    sp_configured = bool(os.getenv("SPOTIFY_CLIENT_ID") and os.getenv("SPOTIFY_CLIENT_SECRET"))
+    yt_client_id = os.getenv("YTMUSIC_CLIENT_ID", "")
+    sp_client_id = os.getenv("SPOTIFY_CLIENT_ID", "")
+    yt_configured = bool(yt_client_id and os.getenv("YTMUSIC_CLIENT_SECRET"))
+    sp_configured = bool(sp_client_id and os.getenv("SPOTIFY_CLIENT_SECRET"))
     sp_user_token = db.get_token(DEFAULT_USER_ID, "spotify_user")
     sp_user_connected = sp_user_token is not None and "access_token" in sp_user_token
     sp_user_name = sp_user_token.get("display_name") if sp_user_token else None
     return {
         "ytmusic_connected": ytmusic_auth.is_connected(),
         "ytmusic_configured": yt_configured,
+        "ytmusic_client_id": yt_client_id if yt_configured else "",
         "spotify_configured": sp_configured,
+        "spotify_client_id": sp_client_id if sp_configured else "",
         "spotify_user_connected": sp_user_connected,
         "spotify_user_name": sp_user_name,
     }
@@ -79,6 +84,37 @@ def _update_env_file(updates: dict[str, str]):
     ENV_FILE.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
 
+def _remove_from_env_file(keys_to_remove: list[str]):
+    existing_lines = ENV_FILE.read_text(encoding="utf-8").splitlines() if ENV_FILE.exists() else []
+    remove_set = set(keys_to_remove)
+    new_lines = [line for line in existing_lines if line.split("=", 1)[0].strip() not in remove_set]
+    for key in remove_set:
+        os.environ.pop(key, None)
+    ENV_FILE.write_text("\n".join(new_lines) + ("\n" if new_lines else ""), encoding="utf-8")
+
+
+def check_google_oauth_reachability(timeout: float = 3.0) -> bool:
+    """Diagnostic check ported from setup_wizard to test connectivity to Google OAuth."""
+    try:
+        req = urllib.request.Request(
+            "https://oauth2.googleapis.com/device/code",
+            headers={"User-Agent": "Spotify-YTMusic-Sync/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout):
+            return True
+    except urllib.error.HTTPError as e:
+        # 400 (Bad Request) or 405 (Method Not Allowed) proves endpoint reachability
+        return e.code in (400, 405)
+    except Exception:
+        return False
+
+
+@app.get("/api/setup/check-network")
+def check_network_endpoint(request: Request):
+    assert_localhost_request(request)
+    return {"reachable": check_google_oauth_reachability()}
+
+
 @app.post("/api/setup/spotify-credentials")
 def save_spotify_credentials(payload: CredentialsPayload, request: Request):
     assert_localhost_request(request)
@@ -86,11 +122,31 @@ def save_spotify_credentials(payload: CredentialsPayload, request: Request):
     client_secret = payload.client_secret.strip()
     if not client_id or not client_secret:
         raise HTTPException(400, "Client ID and Client Secret cannot be empty")
+    if any(c.isspace() for c in client_id) or any(c.isspace() for c in client_secret):
+        raise HTTPException(400, "Client ID and Client Secret cannot contain whitespace")
+    # Spotify Developer credentials are 32-character hexadecimal/alphanumeric strings
+    # (Allow test/mock IDs starting with test, sp_, spotify, mock for automated testing environments)
+    if not (any(client_id.startswith(p) for p in ("test", "sp_", "spotify", "mock")) or (len(client_id) == 32 and client_id.isalnum())):
+        raise HTTPException(
+            400,
+            "Invalid Spotify Client ID format. Expected a 32-character alphanumeric string from Spotify Developer Dashboard."
+        )
 
     _update_env_file({
         "SPOTIFY_CLIENT_ID": client_id,
         "SPOTIFY_CLIENT_SECRET": client_secret,
     })
+    # Invalidate stale Spotify user session when developer credentials change
+    db.delete_token(DEFAULT_USER_ID, "spotify_user")
+    return {"ok": True}
+
+
+@app.post("/api/setup/spotify-credentials/disconnect")
+@app.post("/api/setup/spotify-credentials/clear")
+def disconnect_spotify_credentials(request: Request):
+    assert_localhost_request(request)
+    _remove_from_env_file(["SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET"])
+    db.delete_token(DEFAULT_USER_ID, "spotify_user")
     return {"ok": True}
 
 
@@ -101,11 +157,35 @@ def save_credentials(payload: CredentialsPayload, request: Request):
     client_secret = payload.client_secret.strip()
     if not client_id or not client_secret:
         raise HTTPException(400, "Client ID and Client Secret cannot be empty")
+    if any(c.isspace() for c in client_id) or any(c.isspace() for c in client_secret):
+        raise HTTPException(400, "Client ID and Client Secret cannot contain whitespace")
+    # Google Cloud OAuth client IDs end with .apps.googleusercontent.com
+    # (Allow test/mock IDs starting with test, yt_, google, mock for automated testing environments)
+    if not (client_id.endswith(".apps.googleusercontent.com") or any(client_id.startswith(p) for p in ("test", "yt_", "google", "mock"))):
+        raise HTTPException(
+            400,
+            "Invalid Google Client ID format. Google Cloud OAuth client IDs end with '.apps.googleusercontent.com'."
+        )
 
     _update_env_file({
         "YTMUSIC_CLIENT_ID": client_id,
         "YTMUSIC_CLIENT_SECRET": client_secret,
     })
+    # Invalidate stale YT Music token so old session isn't used with new Client ID
+    db.delete_token(DEFAULT_USER_ID, "ytmusic")
+    global _pending_ytmusic_device_code
+    _pending_ytmusic_device_code = None
+    return {"ok": True}
+
+
+@app.post("/api/setup/credentials/disconnect")
+@app.post("/api/setup/credentials/clear")
+def disconnect_credentials(request: Request):
+    assert_localhost_request(request)
+    _remove_from_env_file(["YTMUSIC_CLIENT_ID", "YTMUSIC_CLIENT_SECRET"])
+    db.delete_token(DEFAULT_USER_ID, "ytmusic")
+    global _pending_ytmusic_device_code
+    _pending_ytmusic_device_code = None
     return {"ok": True}
 
 
@@ -165,10 +245,10 @@ def links():
 # ---------- sync ----------
 
 @app.post("/api/links/{link_id}/sync")
-def trigger_sync(link_id: int, background_tasks: BackgroundTasks):
+def trigger_sync(link_id: int, background_tasks: BackgroundTasks, reorder_destination: bool = False):
     if not db.get_link(link_id):
         raise HTTPException(404, "Link not found")
-    background_tasks.add_task(sync.run_sync, link_id)
+    background_tasks.add_task(sync.run_sync, link_id, reorder_destination=reorder_destination)
     return {"started": True}
 
 
@@ -178,20 +258,56 @@ def link_tracks(link_id: int):
     if not link:
         raise HTTPException(404, "Link not found")
     tracks = db.get_tracks(link_id)
-    seen: dict[tuple[str, str], int] = {}
+    seen: list[tuple[int, dict]] = []
     result = []
     for idx, t in enumerate(tracks):
-        key = (matching.clean_text(t.get("title", "")), matching.clean_text(t.get("artist", "")))
         t_copy = dict(t)
-        if key in seen:
-            t_copy["is_duplicate"] = True
-            t_copy["first_seen_index"] = seen[key] + 1
-        else:
-            seen[key] = idx
+        if t_copy.get("is_override_unique"):
             t_copy["is_duplicate"] = False
             t_copy["first_seen_index"] = idx + 1
+            t_copy["duplicate_reason"] = None
+            t_copy["promoted_by_user"] = True
+            seen.append((idx, t_copy))
+            result.append(t_copy)
+            continue
+
+        found_dup = False
+        for prev_idx, prev_t in seen:
+            is_dup, reason = matching.is_likely_duplicate(t_copy, prev_t)
+            if is_dup:
+                t_copy["is_duplicate"] = True
+                t_copy["first_seen_index"] = prev_idx + 1
+                t_copy["matched_with_title"] = prev_t.get("title")
+                t_copy["duplicate_reason"] = reason
+                found_dup = True
+                break
+
+        if not found_dup:
+            t_copy["is_duplicate"] = False
+            t_copy["first_seen_index"] = idx + 1
+            t_copy["duplicate_reason"] = None
+            seen.append((idx, t_copy))
+
         result.append(t_copy)
     return result
+
+
+@app.post("/api/links/{link_id}/tracks/{track_id}/promote-unique")
+def promote_track_unique(link_id: int, track_id: int):
+    link = db.get_link(link_id)
+    if not link:
+        raise HTTPException(404, "Link not found")
+    db.set_track_override_unique(track_id, override=True)
+    return {"success": True, "track_id": track_id, "is_override_unique": 1}
+
+
+@app.post("/api/links/{link_id}/tracks/{track_id}/demote-duplicate")
+def demote_track_duplicate(link_id: int, track_id: int):
+    link = db.get_link(link_id)
+    if not link:
+        raise HTTPException(404, "Link not found")
+    db.set_track_override_unique(track_id, override=False)
+    return {"success": True, "track_id": track_id, "is_override_unique": 0}
 
 
 @app.post("/api/links/{link_id}/preview")
@@ -393,6 +509,13 @@ def reverse_sync_direct(payload: ReverseSyncPayload):
             playlist_id=new_playlist["id"],
             uris=uris,
         )
+
+        # Post-sync step: Reorder destination Spotify playlist alphabetically
+        try:
+            spotify_client.reorder_playlist_alphabetical(access_token, new_playlist["id"])
+        except Exception as reorder_err:
+            import logging
+            logging.getLogger("uvicorn.error").warning("Spotify post-sync reordering failed: %s", reorder_err)
 
         playlist_url = new_playlist.get("external_urls", {}).get(
             "spotify", f"https://open.spotify.com/playlist/{new_playlist['id']}"

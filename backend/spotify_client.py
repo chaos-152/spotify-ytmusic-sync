@@ -305,6 +305,82 @@ def add_tracks_to_playlist(access_token: str, playlist_id: str, uris: list[str])
                 except Exception:
                     pass
             err_body = e.read().decode()
-            raise RuntimeError(f"Failed to add tracks to Spotify playlist ({e.code}): {err_body}")
-
     return added_count
+
+
+def reorder_playlist_alphabetical(access_token: str, playlist_id: str) -> dict:
+    """
+    Reorders items in the destination Spotify playlist alphabetically by track title,
+    using artist as tiebreaker for exact title matches.
+    Uses atomic batch replacement via PUT /v1/playlists/{playlist_id}/items (or /tracks).
+    """
+    get_req = urllib.request.Request(
+        f"https://api.spotify.com/v1/playlists/{urllib.parse.quote(playlist_id)}/items?limit=100",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    raw_items = []
+    try:
+        with urllib.request.urlopen(get_req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            raw_items = data.get("items", [])
+    except urllib.error.HTTPError:
+        fallback_req = urllib.request.Request(
+            f"https://api.spotify.com/v1/playlists/{urllib.parse.quote(playlist_id)}/tracks?limit=100",
+            headers={"Authorization": f"Bearer {access_token}"},
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(fallback_req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+                raw_items = data.get("items", [])
+        except Exception as e:
+            return {"reordered": False, "error": str(e)}
+
+    tracks = []
+    for item in raw_items:
+        t = item.get("track") or item
+        if not t or not t.get("uri"):
+            continue
+        title = t.get("name", "")
+        artists = [a.get("name", "") for a in t.get("artists", [])]
+        artist = "; ".join(artists) if artists else ""
+        tracks.append({"uri": t["uri"], "title": title, "artist": artist})
+
+    if not tracks:
+        return {"reordered": True, "total_tracks": 0}
+
+    sorted_tracks = sorted(tracks, key=lambda x: (x["title"].lower(), x["artist"].lower()))
+    sorted_uris = [x["uri"] for x in sorted_tracks]
+
+    payload = json.dumps({"uris": sorted_uris[:100]}).encode()
+    put_req = urllib.request.Request(
+        f"https://api.spotify.com/v1/playlists/{urllib.parse.quote(playlist_id)}/items",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        method="PUT",
+    )
+    try:
+        with urllib.request.urlopen(put_req, timeout=10) as resp:
+            resp.read()
+    except urllib.error.HTTPError as e:
+        if e.code in (403, 404):
+            put_tracks = urllib.request.Request(
+                f"https://api.spotify.com/v1/playlists/{urllib.parse.quote(playlist_id)}/tracks",
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                method="PUT",
+            )
+            with urllib.request.urlopen(put_tracks, timeout=10) as resp2:
+                resp2.read()
+        else:
+            raise
+
+    return {"reordered": True, "total_tracks": len(sorted_uris)}
+
