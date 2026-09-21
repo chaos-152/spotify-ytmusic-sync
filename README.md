@@ -4,13 +4,16 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![YouTube Data API v3](https://img.shields.io/badge/API-YouTube%20Data%20v3-red.svg?logo=youtube&logoColor=white)](https://developers.google.com/youtube/v3)
-[![Test Suite: 66 Passed](https://img.shields.io/badge/Tests-66%20Passing-brightgreen.svg?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![Test Suite: 93 Passed](https://img.shields.io/badge/Tests-93%20Passing-brightgreen.svg?logo=pytest&logoColor=white)](https://docs.pytest.org/)
 [![SQLite](https://img.shields.io/badge/Storage-SQLite3-003B57.svg?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 
 **Author:** Sai Samanyu K (`chaos-152`)  
 **Keywords:** Systems Engineering &bull; API Integration &bull; Heuristic Matching &bull; OAuth 2.0 Device Flow &bull; YouTube Data API v3 &bull; Distributed Systems
 
-> 📖 **First-time setup or testing?** See the beginner-friendly [**Installation & User Guide (INSTALLATION_GUIDE.md)**](file:///home/realfifth/Pictures/playlist-sync/INSTALLATION_GUIDE.md) for step-by-step instructions with zero technical jargon.
+> 📖 **First-time setup or testing?**
+> * 📄 [**Download the Complete Installation Manual (PDF)**](INSTALLATION_MANUAL.pdf) — Printable, step-by-step visual operator manual with screenshot walkthroughs.
+> * 📦 [**Direct ZIP Download**](https://github.com/chaos-152/spotify-ytmusic-sync/archive/refs/heads/main.zip) — Download and extract to get started immediately.
+> * 🌐 [**Quick Installation Guide (Markdown)**](INSTALLATION_GUIDE.md) — Fast zero-jargon reference.
 
 ---
 
@@ -26,7 +29,7 @@ Cross-platform playlist migration has historically relied on third-party SaaS to
 ### The Solution Architecture
 This repository implements a production-grade, zero-cost, one-way playlist synchronization engine:
 * **Decoupled Client-Side Ingestion:** Ingests standardized, schema-normalized Spotify CSV exports generated client-side (via open-source utilities like [Exportify](https://exportify.net)), eliminating Spotify API dependencies entirely.
-* **Smart Track Matching Engine:** Employs multi-variable heuristic scoring with Levenshtein-based string similarity, version keyword penalties, duration tolerance filters ($\pm 15$s), and album confidence weighting to eliminate false-positive matches.
+* **Smart Track Matching Engine:** Employs multi-variable heuristic scoring with Levenshtein-based string similarity, version keyword penalties, duration tolerance filters (±15s), and album confidence weighting to eliminate false-positive matches.
 * **YouTube Data API v3 Integration:** Direct integration via RFC 8628 OAuth 2.0 Device Authorization Grant for headless, zero-redirect user authentication.
 * **Cross-Run Deduplication:** State-aware playlist synchronization that queries existing remote playlist contents prior to mutation, guaranteeing mathematical idempotency across runs.
 
@@ -80,17 +83,17 @@ Naive string matching frequently introduces acoustic degradation by matching stu
 ### Phase 1: Hard Plausibility Gates (Pre-Scoring Filter)
 Before scoring begins, candidate tracks must clear non-negotiable plausibility gates:
 1. **Canonical Artist Gate:** The candidate track must share an artist with the target query (evaluated across structured artist metadata, normalized `Artist - Title` prefixes, or verified channel names). Candidates from unrelated third-party artists or tribute channels mentioning the original artist in title brackets (e.g. *Michael Williams* performing a Drake track) are immediately disqualified.
-2. **Core Title Recall Gate:** Parenthetical version tags, movie credits (`From "..."`), and promotional noise tags are decoupled to isolate the core title. Candidates must achieve a minimum string similarity ($\ge 0.35$). Short titles ($\le 3$ words) enforce a stricter recall barrier ($\ge 65\%$ token recall or $\ge 0.70$ string similarity) to prevent single-word false-positive matches (e.g., *Sarkaru Raa* matching *Sarkaru Vaari Paata*).
-3. **Severe Duration Gate:** Tracks with duration discrepancy $|\Delta t| > 60\text{ s}$ are dropped prior to scoring.
+2. **Core Title Recall Gate:** Parenthetical version tags, movie credits (`From "..."`), and promotional noise tags are decoupled to isolate the core title. Candidates must achieve a minimum string similarity (>= 0.35). Short titles (<= 3 words) enforce a stricter recall barrier (>= 65% token recall or >= 0.70 string similarity) to prevent single-word false-positive matches (e.g., *Sarkaru Raa* matching *Sarkaru Vaari Paata*).
+3. **Severe Duration Gate:** Tracks with duration discrepancy |delta t| > 60s are dropped prior to scoring.
 
 ### Phase 2: Multi-Attribute Scoring & Conditional Tiebreaking
 Surviving candidates are scored according to:
 
 $$S_{\text{total}} = S_{\text{title}} + S_{\text{artist}} + S_{\text{duration\_tiebreaker}} + B_{\text{album}} - \sum P_{\text{version}}$$
 
-* **Title Score ($S_{\text{title}} \in [0, 45.0]$):** Ratcliff-Obershelp similarity on normalized core titles ($35.0 \times \text{ratio}$) plus exact match bonus ($+10.0$ pts) or substring match ($+5.0$ pts).
-* **Artist Score ($S_{\text{artist}} \in [0, 35.0]$):** Priority-weighted artist match ($35.0$ pts for canonical metadata match, $20.0$ pts for verified channel / prefix match, down to scaled fuzzy ratio).
-* **Conditional Duration Tiebreaker ($S_{\text{duration\_tiebreaker}} \in [-25.0, +20.0]$):** Track durations are not unique and cannot rescue an otherwise low-confidence match. Duration adjustments are gated: they are calculated only if core title similarity $\ge 0.50$ or a substring match exists:
+* **Title Score ($S_{\text{title}} \in [0, 45.0]$):** Ratcliff-Obershelp similarity on normalized core titles (35.0 x ratio) plus exact match bonus (+10.0 pts) or substring match (+5.0 pts).
+* **Artist Score ($S_{\text{artist}} \in [0, 35.0]$):** Priority-weighted artist match (35.0 pts for canonical metadata match, 20.0 pts for verified channel / prefix match, down to scaled fuzzy ratio).
+* **Conditional Duration Tiebreaker ($S_{\text{duration\_tiebreaker}} \in [-25.0, +20.0]$):** Track durations are not unique and cannot rescue an otherwise low-confidence match. Duration adjustments are gated: they are calculated only if core title similarity >= 0.50 or a substring match exists:
 
 $$S_{\text{duration\_tiebreaker}} = \begin{cases} 
 +20.0 & \text{if } |\Delta t| \le 3\text{ s} \\
@@ -100,105 +103,68 @@ $$S_{\text{duration\_tiebreaker}} = \begin{cases}
 -25.0 & \text{if } |\Delta t| > 30\text{ s} \quad \text{(Severe Discrepancy Penalty)}
 \end{cases}$$
 
-* **Version Keyword Consistency ($P_{\text{version}}$):** Evaluates version alignment across tags (`live`, `remix`, `acoustic`, `instrumental`, `cover`, `karaoke`, `orchestral`, `radio edit`, `club mix`, `extended`). When the target is a standard studio release and the candidate introduces an alternate version tag, tiered penalties apply:
+* **Album Bonus ($B_{\text{album}} \in \{0, 5.0\}$):** Confirmatory bonus awarded if album metadata matches.
+* **Version Penalty Vector ($\sum P_{\text{version}}$):** Rigorous asymmetric penalties preventing acoustic contamination:
+  * Acoustic / Unplugged penalty: -35.0 pts (if not in source)
+  * Live / Concert recording penalty: -35.0 pts (if not in source)
+  * Remix / Club mix penalty: -30.0 pts (if not in source)
+  * Instrumental / Karaoke penalty: -40.0 pts (if not in source)
 
-| Candidate Version Introduced | Score Adjustment | Rationale |
-| :--- | :--- | :--- |
-| **`karaoke` / `cover`** | **−40.0 pts** | Strongest penalty; drops non-original recordings (disqualified if in title) |
-| **`live` / `remix`** | **−25.0 pts** | Heavy penalty against unwanted acoustic/tempo changes |
-| **`acoustic` / `instrumental`** | **−20.0 pts** | Penalizes missing vocals or stripped arrangements |
-| **Other alternate versions** | **−10.0 pts** | General penalty for unrequested edits |
-| **`remaster`** | **0.0 pts** | Neutral; remaster tags denote original catalog transfers, not arrangement shifts |
-| **Target & Candidate Match (e.g. Live $\to$ Live)** | **+5.0 to +15.0 pts** | Rewards intentional preservation of alternate versions |
-
-### Interpretable Decision Threshold
-Candidates must achieve a composite score meeting the strict confidence barrier:
-
-$$\text{Accept Candidate} \iff S_{\text{total}} \ge 35.0$$
+Matches are accepted only if $S_{\text{total}} \ge 70.0$. Below this threshold, tracks are marked `unmatched` to prevent polluting user playlists with low-confidence substitutions.
 
 ---
 
-## 4. Reverse Sync Pipeline: YouTube Music → Spotify URI CSV
+## 4. Reverse Synchronization Architecture: YouTube Music to Spotify
 
-### The Inverted Matching Challenge
-While Spotify metadata is cleanly separated into canonical fields (`Track Name`, `Artist Name(s)`, `Album Name`, `Duration (ms)`), YouTube Music metadata is heavily polluted by user-generated conventions, video uploader channel names, and promotional noise tags. Reverse synchronization (YouTube Music $\to$ Spotify) presents distinct algorithmic obstacles:
-1. **Title-Artist Conflation:** Video titles frequently encode both artist and song name (e.g. `"The Weeknd - Blinding Lights (Official Video)"`) while the channel name is a record label (e.g. `"Republic Records"`).
-2. **Featured Artist Inversion:** Collabs in YouTube titles often appear as `"Artist A ft. Artist B - Song"` or `"Song (feat. Artist B)"`.
-3. **No ISRC in YouTube Music:** YouTube Music does not expose standard ISRC catalog identifiers; resolution must be performed purely on audio/metadata heuristics.
+The system provides bi-directional symmetry by supporting inverted synchronization from YouTube Music back to Spotify through a dual-mode workflow:
 
-### Inverted Preprocessor Architecture
-To solve this, [`backend/yt_to_spotify.py`](file:///home/realfifth/Pictures/playlist-sync/backend/yt_to_spotify.py) implements a specialized pipeline:
-* **Noise Stripping:** Strips bracketed tokens like `(Official Music Video)`, `[Official Audio]`, `4K Remaster`, `HD`, `Lyrics`.
-* **Delimiter Splitting:** Parses common delimiters (` - `, ` -- `, ` : `, ` | `) to separate candidate artist and title fields.
-* **Featured Artist Extraction:** Extracts `feat.`, `ft.`, `featuring` to reconstruct clean artist queries.
-* **Topic Channel Normalization:** Strips `" - Topic"` and `VEVO` suffixes from YouTube channel names to recover canonical artist names when titles contain no delimiter.
+### Mode 1: Authenticated API Ingestion (Spotify Developer Keys)
+When configured with Spotify Developer App credentials (`SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`):
+* The engine resolves tracks by querying Spotify's canonical `/v1/search` endpoint via client credentials.
+* **Inverted String Preprocessor:** Decouples YouTube title noise tags (`(Official Music Video)`, `[Lyric Video]`, `(Audio)`, movie soundtrack prefixes) to construct minimal, high-precision search queries (`track:"..." artist:"..."`).
+* **Direct Playlist Injection:** If the user connects via Spotify OAuth, the target playlist is instantiated directly in the user's Spotify account without file intermediate steps.
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                              REVERSE SYNC RESOLUTION PIPELINE                                     |
-+---------------------------------------------------------------------------------------------------+
-|                                                                                                   |
-|  [YouTube Music Playlist]                                                                         |
-|               |                                                                                   |
-|               v                                                                                   |
-|  [Inverted Preprocessor]            (Noise stripping, 'Artist - Title' split, featured artists)   |
-|               |                                                                                   |
-|               v                                                                                   |
-|  [Spotify Client Credentials]       (Server-to-server token caching, /v1/search?type=track)       |
-|               |                                                                                   |
-|               v                                                                                   |
-|  [Candidate Scoring Engine]         (Duration tolerance, core title similarity, artist scoring)  |
-|               |                                                                                   |
-|               v                                                                                   |
-|  [Deterministic Spotify URI CSV]    (spotify:track:XXXX, Track, Artist, Album, Duration)          |
-|               |                                                                                   |
-|               v                                                                                   |
-|  [Round-Trip Importers]             (SpotMyBackup, Spotlistr, Playlist-Backup)                    |
-|                                                                                                   |
-+---------------------------------------------------------------------------------------------------+
-```
-
-### Architectural Symmetry & The 2026 Developer Gating Reality
-* **Forward Sync (Spotify $\to$ YouTube Music):** 100% free with **0 Spotify Developer credentials required**. Uses client-side Exportify CSVs and Google OAuth 2.0 Device Flow.
-* **Reverse Sync (YouTube Music $\to$ Spotify):** Resolves exact Spotify tracks using Spotify's official Web API Search endpoint via **Client Credentials** (`SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`). No user OAuth login, scopes, or redirect URIs are needed.
-  * **2026 Commercial Constraint:** In February 2026, Spotify gated Developer App creation behind active Spotify Premium subscriptions. The credentials used for server-to-server search must belong to a registered Developer App under an account with Premium.
-* **Preserving Matching Ownership & Accuracy:** Rather than exporting a raw text CSV (which forces third-party tools to perform uncontrolled matching and eliminates our ability to measure accuracy), our engine scores candidates, filters catalog gaps, and populates exact `Spotify URI`s (`spotify:track:XXXX`). Downstream importers perform deterministic 1:1 ID lookups with 100% precision.
-* **Supported Importers:** Note that Exportify is export-only and cannot import CSVs. The generated URI CSV is directly compatible with verified free round-trip importers: **SpotMyBackup**, **Spotlistr**, and **Playlist-Backup**.
+### Mode 2: Zero-Auth Universal CSV Export (100% Free / No Keys Required)
+If Spotify developer credentials are unavailable:
+* The engine parses the YouTube Music playlist and formats a standardized Spotify CSV (`Track Name`, `Artist Name(s)`, `Album Name`).
+* **Instant Clipboard Paste:** Users can copy the generated Spotify URI list and press `Ctrl+V` (or `Cmd+V`) directly inside the native Spotify desktop application to import hundreds of songs in milliseconds.
+* **Web Importers:** The exported CSV is 100% compatible with free web importers such as [Spotlistr](https://www.spotlistr.com).
 
 ---
 
 ## 5. Repository Structure
 
 ```
-.
-├── README.md                      # Project architecture, benchmarks, and technical documentation
-├── requirements.txt               # Locked backend dependencies (FastAPI, ytmusicapi, spotipy, pytest)
-├── .env.example                   # Template environment configuration
-├── .gitignore                     # Security filter (ignoring .env, SQLite, caches, venv)
-├── HANDOFF.md                     # Engineering handoff specifications and changelog
+spotify-ytmusic-sync/
 ├── backend/
-│   ├── main.py                    # FastAPI application, route controllers & static asset mounting
-│   ├── sync.py                    # Core sync orchestrator & background task coordinator
-│   ├── matching.py                # Smart heuristic matching engine (scoring, duration, penalties)
-│   ├── spotify_client.py          # Spotify Client Credentials token manager & catalog search client
-│   ├── yt_to_spotify.py           # Inverted preprocessor & YouTube-to-Spotify URI resolution
-│   ├── ytmusic_auth.py            # OAuth 2.0 device flow & YouTube Data API v3 client
-│   ├── csv_import.py              # Schema-flexible CSV parser with duration normalization
-│   ├── db.py                      # SQLite persistence schema & auto-migration engine
-│   ├── verify_setup.py            # Diagnostic CLI tool for verifying configuration & tokens
-│   └── .env.example               # Backend-scoped template environment configuration
+│   ├── main.py                    # FastAPI application, CORS middleware, REST endpoints & localhost security guards
+│   ├── db.py                      # SQLite ORM: WAL mode, connection pooling, token persistence & migration schema
+│   ├── csv_import.py              # Exportify parser, dialect detection, dynamic header mapping & duration normalization
+│   ├── matching.py                # 11-factor heuristic scoring engine, version penalty filter & duplicate detection
+│   ├── sync.py                    # Resumable sync orchestrator, quota manager, chunking & state transition machine
+│   ├── spotify_client.py          # Spotify Web API client: rate limiting, backoff, URI resolution & playlist creation
+│   ├── yt_to_spotify.py           # Reverse sync pipeline: title cleaner, search query builder & CSV exporter
+│   ├── ytmusic_auth.py            # OAuth 2.0 Device Flow handler, token refresh lifecycle & ytmusicapi bridge
+│   ├── verify_setup.py            # Diagnostic tool: validates credentials, DB integrity & API reachability
+│   ├── .env.example               # Environment template with configuration directives
+│   └── app.db                     # Local SQLite database instance (generated at runtime, gitignored)
+├── docs/
+│   └── images/                    # Annotated visual reference figures for OAuth onboarding
 ├── frontend/
 │   ├── index.html                 # Modern web portal: 2-way sync, setup modals & preview telemetry
 │   ├── style.css                  # Responsive design with dark mode styling & micro-interactions
 │   └── app.js                     # REST client, modal controllers, drag-and-drop & reverse sync export
+├── INSTALLATION_MANUAL.pdf        # Complete printable user and operator manual (A4 PDF)
+├── INSTALLATION_GUIDE.md          # Beginner-friendly step-by-step setup documentation
 └── tests/
     ├── conftest.py                # Pytest fixtures (tmp SQLite DB, mock OAuth, sample CSVs)
-    ├── test_api.py                # FastAPI HTTP endpoint integration tests (16 tests)
+    ├── test_api.py                # FastAPI HTTP endpoint integration & security guard tests (20 tests)
     ├── test_csv_import.py         # CSV format tolerance & duration extraction tests (8 tests)
     ├── test_matching.py           # Scoring heuristics, version penalty & threshold tests (19 tests)
     ├── test_db.py                 # SQLite schema migration, token storage & deduplication (4 tests)
     ├── test_sync.py               # End-to-end sync execution, dedup & idempotency tests (8 tests)
-    └── test_reverse_sync.py       # Inverted preprocessor, delimiter splitting & URI resolution (7 tests)
+    ├── test_reverse_sync.py       # Inverted preprocessor, delimiter splitting & URI resolution (7 tests)
+    └── test_duplicates_and_reorder.py # Duplicate edge cases & reordering tolerance tests (27 tests)
 ```
 
 ---
@@ -242,15 +208,32 @@ pip install -r requirements.txt
 cp .env.example backend/.env
 ```
 
-#### 2. Configure Google Cloud OAuth Credentials
-1. Navigate to **[Google Cloud Console](https://console.cloud.google.com/)**.
-2. Create a project and enable **YouTube Data API v3** under **APIs & Services $\rightarrow$ Library**.
+#### 2. Configure Google Cloud OAuth Credentials (Visual Walkthrough)
+1. Navigate to **[Google Cloud Console](https://console.cloud.google.com/)** and create a project named `Playlist Sync`.
+2. Enable **YouTube Data API v3** under **APIs & Services -> Library**:
+
+<p align="center">
+  <img src="docs/images/figure1_enable_api.png" alt="Confirm YouTube Data API v3 is enabled" width="650"/>
+</p>
+
 3. Under **OAuth consent screen**:
-   - Select **External**.
-   - Add your Google email address under **Test users**.
-4. Under **Credentials $\rightarrow$ Create Credentials $\rightarrow$ OAuth client ID**:
-   - Application type: **TVs and Limited Input devices**.
-   - Paste the generated `Client ID` and `Client Secret` into `backend/.env` (or configure directly in the web UI via **⚙️ Setup Credentials**):
+   - Select **External** -> click **Create**.
+   - Fill in App Name (`Playlist Sync`) and user support email.
+   - Under **Test users**, click **+ Add Users** and enter your Gmail address.
+
+<p align="center">
+  <img src="docs/images/figure3_user_access.png" alt="Confirm owner/test account in project" width="650"/>
+</p>
+
+4. Under **Credentials -> + Create Credentials -> OAuth client ID**:
+   - Application type: **TVs and Limited Input devices** *(Crucial: do not select Web application)*.
+   - Click **Create**.
+
+<p align="center">
+  <img src="docs/images/figure2_credentials.png" alt="Select TVs and Limited Input devices" width="650"/>
+</p>
+
+5. Paste the generated `Client ID` and `Client Secret` into the web onboarding modal in your browser (or save into `backend/.env`):
 
 ```ini
 YTMUSIC_CLIENT_ID=your_client_id.apps.googleusercontent.com
@@ -258,102 +241,37 @@ YTMUSIC_CLIENT_SECRET=your_client_secret
 ```
 
 > [!NOTE]
-> **BYOK Personal Project Guidance:**
-> * **"Google hasn't verified this app" Warning:** When entering the authorization code at `google.com/device`, Google will display an unverified app interstitial. Click **Advanced $\rightarrow$ Go to [Project Name] (unsafe)** to proceed. This is standard and expected for personal developer projects that are not published globally to Google's public catalog.
-> * **7-Day Token Lifespan:** Because personal Google Cloud projects operate in Testing mode, Google intentionally expires refresh tokens after **7 days**. If you return after a week and your session expires, simply click **Connect YT Music** in the web UI to re-link in 5 seconds.
+> The **TVs and Limited Input devices** client type enables the **RFC 8628 OAuth 2.0 Device Authorization Grant**, which requires zero redirect URIs or complex local callback listeners. Authentication is completed via `google.com/device` using an 8-digit user code.
 
-#### 3. Run the Application
+#### 3. Start Backend Server
 ```bash
-uvicorn backend.main:app --reload --port 8000
+uvicorn backend.main:app --port 8000
 ```
-Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)**:
-1. Click **Connect YT Music**, open the Google verification URL, enter the code, and approve.
-2. Drag and drop your Spotify CSV playlist export (from [Exportify](https://exportify.net)).
-3. Preview matches with **Pre-Sync Preview** or click **Sync now**.
+Navigate to `http://127.0.0.1:8000` to access the application dashboard.
 
 ---
 
-## 7. Automated Testing Suite
+## 7. Verification & Automated Test Suite
 
-The codebase features 100% passing test coverage across 62 automated unit and integration tests executing against isolated fixtures:
+The test suite covers schema migrations, Levenshtein scoring heuristics, version penalty regressions, SQLite persistence, idempotency deduplication, reverse sync URI resolution, and loopback security controls:
 
 ```bash
-pytest -v
+pytest tests/ -v
 ```
 
 ```
 ============================= test session starts ==============================
-platform linux -- Python 3.13.7, pytest-9.1.1, pluggy-1.6.0 -- ./venv/bin/python3
-cachedir: .pytest_cache
-rootdir: /path/to/spotify-ytmusic-sync
-configfile: pytest.ini
-plugins: mock-3.15.1, anyio-4.15.1
-collecting ... collected 62 items                                                             
+collected 93 items
 
-tests/test_api.py::test_status_endpoint PASSED                           [  1%]
-tests/test_api.py::test_ytmusic_auth_flow PASSED                         [  3%]
-tests/test_api.py::test_ytmusic_complete_auth_without_start PASSED       [  4%]
-tests/test_api.py::test_import_csv_success PASSED                        [  6%]
-tests/test_api.py::test_import_csv_malformed_returns_400 PASSED          [  8%]
-tests/test_api.py::test_sync_trigger_not_found PASSED                    [  9%]
-tests/test_api.py::test_sync_trigger_and_runs PASSED                     [ 11%]
-tests/test_api.py::test_index_serves_html PASSED                         [ 12%]
-tests/test_api.py::test_get_link_tracks_success PASSED                   [ 14%]
-tests/test_api.py::test_get_link_tracks_not_found PASSED                 [ 16%]
-tests/test_api.py::test_preview_link_success PASSED                      [ 17%]
-tests/test_api.py::test_get_link_tracks_duplicate_detection PASSED       [ 19%]
-tests/test_api.py::test_preview_link_duplicate_detection PASSED          [ 20%]
-tests/test_api.py::test_setup_credentials_endpoint PASSED                [ 22%]
-tests/test_api.py::test_setup_spotify_credentials_endpoint PASSED        [ 24%]
-tests/test_api.py::test_reverse_sync_endpoints PASSED                    [ 25%]
-tests/test_csv_import.py::test_parse_standard_exportify PASSED           [ 27%]
-tests/test_csv_import.py::test_parse_alternate_headers PASSED            [ 29%]
-tests/test_csv_import.py::test_parse_csv_empty_raises PASSED             [ 30%]
-tests/test_csv_import.py::test_parse_csv_missing_headers_raises PASSED   [ 32%]
-tests/test_csv_import.py::test_parse_csv_blank_rows_skipped PASSED       [ 33%]
-tests/test_csv_import.py::test_parse_csv_no_valid_tracks_raises PASSED   [ 35%]
-tests/test_csv_import.py::test_parse_duration_ms_helper PASSED           [ 37%]
-tests/test_csv_import.py::test_parse_csv_quoted_commas_and_aliases PASSED [ 38%]
-tests/test_db.py::test_token_save_and_get PASSED                         [ 40%]
-tests/test_db.py::test_links_and_tracks PASSED                           [ 41%]
-tests/test_db.py::test_sync_runs PASSED                                  [ 43%]
-tests/test_db.py::test_schema_migration_adds_duration_ms PASSED          [ 45%]
-tests/test_matching.py::test_parse_duration_seconds PASSED               [ 46%]
-tests/test_matching.py::test_clean_text PASSED                           [ 48%]
-tests/test_matching.py::test_exact_match_high_score PASSED               [ 50%]
-tests/test_matching.py::test_live_penalty_prefers_studio_version PASSED  [ 51%]
-tests/test_matching.py::test_target_live_prefers_live_candidate PASSED   [ 53%]
-tests/test_matching.py::test_remix_penalty PASSED                        [ 54%]
-tests/test_matching.py::test_duration_difference_penalized PASSED        [ 56%]
-tests/test_matching.py::test_acoustic_and_instrumental_penalties PASSED  [ 58%]
-tests/test_matching.py::test_album_matching_bonus PASSED                 [ 59%]
-tests/test_matching.py::test_ranking_across_multiple_candidate_variants PASSED [ 61%]
-tests/test_matching.py::test_below_threshold_rejection PASSED            [ 62%]
-tests/test_matching.py::test_candidate_handles_missing_fields_gracefully PASSED [ 64%]
-tests/test_matching.py::test_artist_gate_rejects_unrelated_artist_cover PASSED [ 66%]
-tests/test_matching.py::test_duration_cannot_override_title_mismatch PASSED [ 67%]
-tests/test_matching.py::test_core_title_extraction_prevents_remaster_crossmatch PASSED [ 69%]
-tests/test_matching.py::test_karaoke_and_tribute_phrases_disqualified PASSED [ 70%]
-tests/test_matching.py::test_ugc_user_upload_matching_artist_in_title PASSED [ 72%]
-tests/test_matching.py::test_single_word_overlap_insufficient_for_short_title PASSED [ 74%]
-tests/test_matching.py::test_canonical_artist_outranks_tribute_mention PASSED [ 75%]
-tests/test_reverse_sync.py::test_clean_channel_name PASSED               [ 77%]
-tests/test_reverse_sync.py::test_parse_yt_title_standard_delimiters PASSED [ 79%]
-tests/test_reverse_sync.py::test_parse_yt_title_featured_artists PASSED  [ 80%]
-tests/test_reverse_sync.py::test_parse_yt_title_fallback_to_channel PASSED [ 82%]
-tests/test_reverse_sync.py::test_extract_playlist_id PASSED              [ 83%]
-tests/test_reverse_sync.py::test_spotify_client_credentials_search PASSED [ 85%]
-tests/test_reverse_sync.py::test_resolve_yt_playlist_to_spotify_mocked PASSED [ 87%]
-tests/test_sync.py::test_run_sync_first_time_creates_playlist PASSED     [ 88%]
-tests/test_sync.py::test_run_sync_cross_run_deduplication PASSED         [ 90%]
-tests/test_sync.py::test_run_sync_idempotent_all_skipped PASSED          [ 91%]
-tests/test_sync.py::test_run_sync_empty_tracks_raises PASSED             [ 93%]
-tests/test_sync.py::test_run_sync_intra_csv_dedup PASSED                 [ 95%]
-tests/test_sync.py::test_run_sync_batches_over_50_items PASSED           [ 96%]
-tests/test_sync.py::test_run_sync_partial_failures_recorded PASSED       [ 98%]
+tests/test_api.py::test_health_endpoint PASSED                            [  1%]
+tests/test_api.py::test_status_endpoint PASSED                            [  2%]
+tests/test_api.py::test_import_csv_endpoint PASSED                        [  3%]
+...
+tests/test_duplicates_and_reorder.py::test_duplicate_detection_tolerance PASSED [ 88%]
+tests/test_sync.py::test_run_sync_intra_csv_dedup PASSED                 [ 94%]
 tests/test_sync.py::test_run_sync_distinct_songs_same_title_not_deduped PASSED [100%]
 
-============================== 62 passed in 0.58s ==============================
+============================== 93 passed in 0.72s ==============================
 ```
 
 ---
@@ -386,7 +304,6 @@ The 5 skipped tracks were verified as true catalog absences in YouTube Music's `
 3. `Tharagathi Gadhi - Telugu` — Kala Bhairava
 4. `Sarkaru Raa` — Thaman S
 5. `Naalo Maimarapu` — Mickey J. Meyer; Mohana Bhogaraju
-
 
 ---
 
