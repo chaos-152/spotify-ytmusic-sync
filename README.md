@@ -251,6 +251,26 @@ Navigate to `http://127.0.0.1:8000` to access the application dashboard.
 
 ---
 
+### Sync Workflows (Step-by-Step)
+
+#### A. Spotify → YouTube Music (Forward Sync)
+1. **Export Playlist from Spotify:** Visit [Exportify](https://exportify.net) in your browser, log into Spotify, and click **Export** next to any playlist. It will download a clean `.csv` file.
+2. **Import into App:** Open `http://127.0.0.1:8000`, drag and drop the `.csv` file into **Section 2**, and click **Import Playlist**.
+3. **Preview & Sync:** Under **Section 3 (Imported Playlists)**:
+   - *(Optional)* Click **Pre-Sync Preview** to inspect matched YouTube tracks, duration deltas, and similarity scores.
+   - Click **Sync Now**. A real-time progress bar will track playlist generation. When complete, click **Open in YT Music ↗**!
+
+#### B. YouTube Music → Spotify (Reverse Sync)
+1. In the web dashboard, click the **Move to Spotify** tab at the top.
+2. Select any YouTube Music playlist from your personal library or enter a public playlist link.
+3. Click **Fetch Tracks & Match**. The engine queries Spotify's catalog to find the exact matching master releases.
+4. **Choose your import method:**
+   - **Method 1: Direct 1-Click Sync:** Click **Sync Directly to Spotify** to create and populate the playlist in your Spotify account automatically *(requires Spotify developer credentials in `⚙️ Spotify Credentials`)*.
+   - **Method 2: Desktop Instant Paste (Fastest / No Spotify Keys Required):** Click **Download CSV**. Open the file, copy the column of Spotify URIs (`spotify:track:...`), open the Spotify desktop application, click inside an empty playlist, and press **Ctrl+V** (or **Cmd+V** on macOS). Spotify immediately populates the tracks!
+   - **Method 3: Web Importer:** Upload the exported CSV to [Spotlistr](https://www.spotlistr.com) to import via web browser.
+
+---
+
 ## 7. Verification & Automated Test Suite
 
 The test suite covers schema migrations, Levenshtein scoring heuristics, version penalty regressions, SQLite persistence, idempotency deduplication, reverse sync URI resolution, and loopback security controls:
